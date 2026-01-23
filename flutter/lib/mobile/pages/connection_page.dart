@@ -100,19 +100,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// Callback for the connect button.
   /// Connects to the selected peer.
   void onConnect() {
-    // Check if user is logged in before allowing connection
-    if (!gFFI.userModel.isLogin) {
-      showToast(translate('Please login first'));
-      // Show login dialog
-      loginDialog().then((_) {
-        // After login dialog closes, check if logged in and connect
-        if (gFFI.userModel.isLogin) {
-          var id = _idController.id;
-          connect(context, id);
-        }
-      });
-      return;
-    }
     var id = _idController.id;
     connect(context, id);
   }
