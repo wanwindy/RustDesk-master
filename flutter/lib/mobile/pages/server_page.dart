@@ -553,16 +553,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
     return PaddingCard(
         title: translate("Permissions"),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          serverModel.mediaOk
-              ? ElevatedButton.icon(
-                      style: ButtonStyle(
-                          backgroundColor:
-                              MaterialStateProperty.all(Colors.red)),
-                      icon: const Icon(Icons.stop),
-                      onPressed: serverModel.toggleService,
-                      label: Text(translate("Stop service")))
-                  .marginOnly(bottom: 8)
-              : SizedBox.shrink(),
+          // Stop service button removed - users cannot stop service
           PermissionRow(
               translate("Screen Capture"),
               serverModel.mediaOk,
