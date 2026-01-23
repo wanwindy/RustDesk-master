@@ -1,7 +1,7 @@
 // Android Privacy Mode Implementation
 // Uses Flutter platform channel to control black screen overlay
 
-use hbb_common::{bail, ResultType};
+use hbb_common::{bail, log, ResultType};
 use std::sync::atomic::{AtomicI32, Ordering};
 
 pub const PRIVACY_MODE_IMPL: &str = "privacy_mode_impl_android";
