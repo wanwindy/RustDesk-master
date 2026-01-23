@@ -18,6 +18,7 @@ import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
+import '../../common/widgets/login.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
@@ -331,6 +332,22 @@ class _ConnectionPageState extends State<ConnectionPage>
       {bool isFileTransfer = false,
       bool isViewCamera = false,
       bool isTerminal = false}) {
+    // Check if user is logged in before allowing connection
+    if (!gFFI.userModel.isLogin) {
+      showToast(translate('Please login first'));
+      // Show login dialog
+      loginDialog().then((_) {
+        // After login dialog closes, check if logged in and connect
+        if (gFFI.userModel.isLogin) {
+          var id = _idController.id;
+          connect(context, id,
+              isFileTransfer: isFileTransfer,
+              isViewCamera: isViewCamera,
+              isTerminal: isTerminal);
+        }
+      });
+      return;
+    }
     var id = _idController.id;
     connect(context, id,
         isFileTransfer: isFileTransfer,
