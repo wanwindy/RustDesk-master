@@ -28,6 +28,10 @@ mod win_virtual_display;
 #[cfg(windows)]
 pub use win_virtual_display::restore_reg_connectivity;
 
+#[cfg(target_os = "android")]
+mod android;
+
+
 pub const INVALID_PRIVACY_MODE_CONN_ID: i32 = 0;
 pub const OCCUPIED: &'static str = "Privacy occupied by another one.";
 pub const TURN_OFF_OTHER_ID: &'static str =
@@ -38,6 +42,8 @@ pub const PRIVACY_MODE_IMPL_WIN_MAG: &str = "privacy_mode_impl_mag";
 pub const PRIVACY_MODE_IMPL_WIN_EXCLUDE_FROM_CAPTURE: &str =
     "privacy_mode_impl_exclude_from_capture";
 pub const PRIVACY_MODE_IMPL_WIN_VIRTUAL_DISPLAY: &str = "privacy_mode_impl_virtual_display";
+#[cfg(target_os = "android")]
+pub const PRIVACY_MODE_IMPL_ANDROID: &str = "privacy_mode_impl_android";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "t", content = "c")]
@@ -103,7 +109,11 @@ lazy_static::lazy_static! {
                 }
             }.to_owned()
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "android")]
+        {
+            PRIVACY_MODE_IMPL_ANDROID.to_owned()
+        }
+        #[cfg(not(any(windows, target_os = "android")))]
         {
             "".to_owned()
         }
@@ -126,9 +136,9 @@ lazy_static::lazy_static! {
 pub type PrivacyModeCreator = fn(impl_key: &str) -> Box<dyn PrivacyMode>;
 lazy_static::lazy_static! {
     static ref PRIVACY_MODE_CREATOR: Arc<Mutex<HashMap<&'static str, PrivacyModeCreator>>> = {
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "android")))]
         let map: HashMap<&'static str, PrivacyModeCreator> = HashMap::new();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "android"))]
         let mut map: HashMap<&'static str, PrivacyModeCreator> = HashMap::new();
         #[cfg(windows)]
         {
@@ -145,6 +155,12 @@ lazy_static::lazy_static! {
             map.insert(win_virtual_display::PRIVACY_MODE_IMPL, |impl_key: &str| {
                     Box::new(win_virtual_display::PrivacyModeImpl::new(impl_key))
                 });
+        }
+        #[cfg(target_os = "android")]
+        {
+            map.insert(android::PRIVACY_MODE_IMPL, |impl_key: &str| {
+                Box::new(android::PrivacyModeImpl::new(impl_key))
+            });
         }
         Arc::new(Mutex::new(map))
     };
@@ -333,7 +349,11 @@ pub fn get_supported_privacy_mode_impl() -> Vec<(&'static str, &'static str)> {
 
         vec_impls
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "android")]
+    {
+        vec![(PRIVACY_MODE_IMPL_ANDROID, "privacy_mode_impl_android_tip")]
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "android")))]
     {
         Vec::new()
     }

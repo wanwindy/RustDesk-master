@@ -183,6 +183,15 @@ class MainService : Service() {
                 }
                 
             }
+            "toggle_privacy_mode" -> {
+                val enable = arg1.toBoolean()
+                Log.d(logTag, "toggle_privacy_mode: $enable")
+                if (enable) {
+                    PrivacyModeService.startPrivacyMode(this)
+                } else {
+                    PrivacyModeService.stopPrivacyMode(this)
+                }
+            }
             else -> {
             }
         }
