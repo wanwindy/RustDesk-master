@@ -1,7 +1,7 @@
 // Android Privacy Mode Implementation
 // Uses Flutter platform channel to control black screen overlay
 
-use hbb_common::{bail, log, ResultType};
+use hbb_common::{bail, ResultType};
 use std::sync::atomic::{AtomicI32, Ordering};
 
 pub const PRIVACY_MODE_IMPL: &str = "privacy_mode_impl_android";
@@ -45,12 +45,12 @@ impl super::PrivacyMode for PrivacyModeImpl {
             Some("true"),
             None,
         ) {
-            log::error!("Failed to enable Android privacy mode: {}", e);
+            hbb_common::log::error!("Failed to enable Android privacy mode: {}", e);
             bail!("Failed to enable privacy mode");
         }
 
         CONN_ID.store(conn_id, Ordering::SeqCst);
-        log::info!("Android privacy mode turned on for conn_id: {}", conn_id);
+        hbb_common::log::info!("Android privacy mode turned on for conn_id: {}", conn_id);
         Ok(true)
     }
 
@@ -67,12 +67,12 @@ impl super::PrivacyMode for PrivacyModeImpl {
             Some("false"),
             None,
         ) {
-            log::error!("Failed to disable Android privacy mode: {}", e);
+            hbb_common::log::error!("Failed to disable Android privacy mode: {}", e);
             // Don't bail here, still reset conn_id
         }
 
         CONN_ID.store(super::INVALID_PRIVACY_MODE_CONN_ID, Ordering::SeqCst);
-        log::info!("Android privacy mode turned off");
+        hbb_common::log::info!("Android privacy mode turned off");
         Ok(())
     }
 
@@ -84,4 +84,3 @@ impl super::PrivacyMode for PrivacyModeImpl {
         &self.impl_key
     }
 }
-
