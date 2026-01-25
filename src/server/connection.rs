@@ -3634,6 +3634,8 @@ impl Connection {
     }
 
     async fn toggle_privacy_mode(&mut self, t: TogglePrivacyMode) {
+        log::info!("DEBUG_PRIVACY: toggle_privacy_mode request received: on={}", t.on);
+        println!("DEBUG_PRIVACY: toggle_privacy_mode request received: on={}", t.on);
         if t.on {
             self.turn_on_privacy(t.impl_key).await;
         } else {

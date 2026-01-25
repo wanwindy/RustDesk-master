@@ -209,6 +209,8 @@ fn get_supported_impl(impl_key: &str) -> String {
 }
 
 pub async fn turn_on_privacy(impl_key: &str, conn_id: i32) -> Option<ResultType<bool>> {
+    log::info!("DEBUG_PRIVACY: turn_on_privacy global called with impl_key: {}", impl_key);
+    println!("DEBUG_PRIVACY: turn_on_privacy global called with impl_key: {}", impl_key);
     if is_async_privacy_mode() {
         turn_on_privacy_async(impl_key.to_string(), conn_id).await
     } else {

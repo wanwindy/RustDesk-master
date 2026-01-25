@@ -112,6 +112,7 @@ class MainService : Service() {
 
     @Keep
     fun rustSetByName(name: String, arg1: String, arg2: String) {
+        Log.d(logTag, "rustSetByName called with: $name")
         when (name) {
             "add_connection" -> {
                 try {

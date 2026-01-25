@@ -17,6 +17,9 @@ import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
+import android.widget.Toast
+import android.net.Uri
+import android.app.PendingIntent
 import androidx.core.app.NotificationCompat
 
 /**
@@ -86,7 +89,13 @@ class PrivacyModeService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!Settings.canDrawOverlays(this)) {
                 Log.e(TAG, "Overlay permission not granted")
-                notifyPermissionError()
+                
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(this, "隐私模式需要悬浮窗权限，请在设置中开启", Toast.LENGTH_LONG).show()
+                }
+                
+                showPermissionNotification()
+                
                 stopSelf()
                 return
             }
@@ -239,5 +248,41 @@ class PrivacyModeService : Service() {
                 "text" to "Please grant 'Display over other apps' permission to use privacy mode"
             ))
         }
+    }
+
+    private fun showPermissionNotification() {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        
+        // Ensure channel exists
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "系统服务",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "后台服务运行中"
+                setShowBadge(false)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+        val pendingIntent = PendingIntent.getActivity(
+            this, 
+            0, 
+            intent, 
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT else PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("需要权限")
+            .setContentText("点击开启悬浮窗权限以使用隐私模式")
+            .setSmallIcon(R.mipmap.ic_stat_logo)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID + 1, notification)
     }
 }

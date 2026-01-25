@@ -34,6 +34,7 @@ impl super::PrivacyMode for PrivacyModeImpl {
     }
 
     fn turn_on_privacy(&mut self, conn_id: i32) -> ResultType<bool> {
+        println!("DEBUG_PRIVACY: android turn_on_privacy called");
         // Check if already occupied
         if self.check_on_conn_id(conn_id)? {
             return Ok(true);
