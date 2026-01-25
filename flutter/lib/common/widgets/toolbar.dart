@@ -788,9 +788,11 @@ List<TToggleMenu> toolbarPrivacyMode(
 
   // Android-specific privacy mode (black screen overlay)
   if (pi.platform == kPeerPlatformAndroid) {
+    const androidImplKey = 'privacy_mode_impl_android';
     return [
       getDefaultMenu((sid, opt) async {
-        bind.sessionToggleOption(sessionId: sid, value: opt);
+        bind.sessionTogglePrivacyMode(
+            sessionId: sid, implKey: androidImplKey, on: privacyModeState.isEmpty);
         togglePrivacyModeTime = DateTime.now();
       })
     ];
