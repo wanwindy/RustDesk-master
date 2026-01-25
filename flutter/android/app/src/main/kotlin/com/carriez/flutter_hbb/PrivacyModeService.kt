@@ -213,15 +213,19 @@ class PrivacyModeService : Service() {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             windowType,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or      // Block all touch events
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or  // Don't steal focus
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or  // Don't steal focus
                     WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,   // Keep screen on
             PixelFormat.OPAQUE
         )
         
         // Add overlay to window
-        windowManager?.addView(privacyView, params)
-        Log.d(TAG, "Black overlay created and displayed")
+        try {
+            windowManager?.addView(privacyView, params)
+            Log.d(TAG, "Black overlay created and displayed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add view to window manager", e)
+            throw e
+        }
     }
     
     /**

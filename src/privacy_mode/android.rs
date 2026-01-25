@@ -39,15 +39,19 @@ impl super::PrivacyMode for PrivacyModeImpl {
             return Ok(true);
         }
 
+        hbb_common::log::info!("Attempting to turn on Android privacy mode, conn_id: {}", conn_id);
+
         // Request Flutter to show black screen overlay
         if let Err(e) = scrap::android::call_main_service_set_by_name(
             "toggle_privacy_mode",
             Some("true"),
             None,
         ) {
-            hbb_common::log::error!("Failed to enable Android privacy mode: {}", e);
+            hbb_common::log::error!("Failed to enable Android privacy mode via JNI: {}", e);
             bail!("Failed to enable privacy mode");
         }
+        
+        hbb_common::log::info!("Successfully called JNI to enable privacy mode");
 
         CONN_ID.store(conn_id, Ordering::SeqCst);
         hbb_common::log::info!("Android privacy mode turned on for conn_id: {}", conn_id);
