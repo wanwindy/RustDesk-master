@@ -13,6 +13,7 @@ import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
+import '../widgets/privacy_mode_card.dart';
 import 'home_page.dart';
 
 class ServerPage extends StatefulWidget implements PageShape {
@@ -212,6 +213,8 @@ class _ServerPageState extends State<ServerPage> {
                         gFFI.serverModel.isStart
                             ? ServerInfo()
                             : ServiceNotRunningNotification(),
+                        // 黑屏模式控制卡片 - Android 端直接控制
+                        if (gFFI.serverModel.isStart) const PrivacyModeCard(),
                         // ConnectionManager removed - users cannot disconnect
                         const PermissionChecker(),
                         SizedBox.fromSize(size: const Size(0, 15.0)),
