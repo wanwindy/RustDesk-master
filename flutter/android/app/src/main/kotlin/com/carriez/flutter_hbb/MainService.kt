@@ -113,7 +113,8 @@ class MainService : Service() {
 
     @Keep
     fun rustSetByName(name: String, arg1: String, arg2: String) {
-        Log.d(logTag, "rustSetByName called with: $name")
+        Log.d(logTag, "DEBUG_PRIVACY: ===== rustSetByName called =====")
+        Log.d(logTag, "DEBUG_PRIVACY: name=$name, arg1=$arg1, arg2=$arg2")
         when (name) {
             "add_connection" -> {
                 try {
@@ -250,8 +251,11 @@ class MainService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(logTag,"DEBUG_PRIVACY: ===== MainService onCreate called =====")
         Log.d(logTag,"MainService onCreate, sdk int:${Build.VERSION.SDK_INT} reuseVirtualDisplay:$reuseVirtualDisplay")
+        Log.d(logTag,"DEBUG_PRIVACY: Initializing FFI (JNI context)...")
         FFI.init(this)
+        Log.d(logTag,"DEBUG_PRIVACY: FFI initialized successfully")
         HandlerThread("Service", Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()
             serviceLooper = looper
