@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/mobile/widgets/dialog.dart';
+import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:get/get.dart';
 
 /// 黑屏模式控制卡片
@@ -41,7 +42,7 @@ class _PrivacyModeCardState extends State<PrivacyModeCard> {
       debugPrint('DEBUG_PRIVACY: Android端手动切换黑屏模式: $newState');
 
       // 直接调用 Android 原生方法
-      await platformFFI.invokeMethod(
+      await gFFI.invokeMethod(
         'set_by_name',
         {'name': 'toggle_privacy_mode', 'value': newState.toString()},
       );
