@@ -296,16 +296,24 @@ class MainActivity : FlutterActivity() {
                                     )
                                     startActivity(intent)
                                     result.error("PERMISSION_DENIED", "需要悬浮窗权限才能使用隐私模式", null)
-                                    return@when
+                                } else {
+                                    // Permission granted, proceed
+                                    if (enable) {
+                                        PrivacyModeService.startPrivacyMode(this)
+                                    } else {
+                                        PrivacyModeService.stopPrivacyMode(this)
+                                    }
+                                    result.success(true)
                                 }
-                            }
-                            
-                            if (enable) {
-                                PrivacyModeService.startPrivacyMode(this)
                             } else {
-                                PrivacyModeService.stopPrivacyMode(this)
+                                // No permission check needed or disabling privacy mode
+                                if (enable) {
+                                    PrivacyModeService.startPrivacyMode(this)
+                                } else {
+                                    PrivacyModeService.stopPrivacyMode(this)
+                                }
+                                result.success(true)
                             }
-                            result.success(true)
                         }
                         else -> {
                             result.error("-1", "Unknown set_by_name operation: $name", null)
