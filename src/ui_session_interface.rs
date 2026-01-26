@@ -386,15 +386,21 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn toggle_privacy_mode(&self, impl_key: String, on: bool) {
+        log::info!("DEBUG_PRIVACY: PC端 toggle_privacy_mode called: impl_key={}, on={}", impl_key, on);
+        println!("DEBUG_PRIVACY: PC端 toggle_privacy_mode called: impl_key={}, on={}", impl_key, on);
+        
         let mut misc = Misc::new();
         misc.set_toggle_privacy_mode(TogglePrivacyMode {
-            impl_key,
+            impl_key: impl_key.clone(),
             on,
             ..Default::default()
         });
         let mut msg_out = Message::new();
         msg_out.set_misc(misc);
+        
+        log::info!("DEBUG_PRIVACY: PC端 Sending toggle_privacy_mode message");
         self.send(Data::Message(msg_out));
+        log::info!("DEBUG_PRIVACY: PC端 Message sent");
     }
 
     pub fn get_toggle_option(&self, name: String) -> bool {

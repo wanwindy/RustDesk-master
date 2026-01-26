@@ -338,8 +338,17 @@ pub fn session_toggle_option(session_id: SessionID, value: String) {
 }
 
 pub fn session_toggle_privacy_mode(session_id: SessionID, impl_key: String, on: bool) {
+    log::info!("DEBUG_PRIVACY: flutter_ffi session_toggle_privacy_mode called");
+    log::info!("DEBUG_PRIVACY: session_id={:?}, impl_key={}, on={}", session_id, impl_key, on);
+    println!("DEBUG_PRIVACY: flutter_ffi session_toggle_privacy_mode called: session_id={:?}, impl_key={}, on={}", session_id, impl_key, on);
+    
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        log::info!("DEBUG_PRIVACY: Session found, calling session.toggle_privacy_mode");
         session.toggle_privacy_mode(impl_key, on);
+        log::info!("DEBUG_PRIVACY: session.toggle_privacy_mode returned");
+    } else {
+        log::error!("DEBUG_PRIVACY: Session NOT found for session_id={:?}", session_id);
+        println!("DEBUG_PRIVACY: ERROR - Session NOT found for session_id={:?}", session_id);
     }
 }
 

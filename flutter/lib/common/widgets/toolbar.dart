@@ -763,13 +763,20 @@ List<TToggleMenu> toolbarPrivacyMode(
 
   getDefaultMenu(Future<void> Function(SessionID sid, String opt) toggleFunc) {
     final enabled = !ffi.ffiModel.viewOnly;
+    debugPrint('DEBUG_PRIVACY: getDefaultMenu - enabled=$enabled, viewOnly=${ffi.ffiModel.viewOnly}');
     return TToggleMenu(
         value: privacyModeState.isNotEmpty,
         onChanged: enabled
             ? (value) {
-                if (value == null) return;
+                debugPrint('DEBUG_PRIVACY: onChanged called - value=$value');
+                if (value == null) {
+                  debugPrint('DEBUG_PRIVACY: value is null, returning');
+                  return;
+                }
+                debugPrint('DEBUG_PRIVACY: currentDisplay=${ffiModel.pi.currentDisplay}, kAllDisplayValue=$kAllDisplayValue');
                 if (ffiModel.pi.currentDisplay != 0 &&
                     ffiModel.pi.currentDisplay != kAllDisplayValue) {
+                  debugPrint('DEBUG_PRIVACY: 显示器检查失败！currentDisplay=${ffiModel.pi.currentDisplay}');
                   msgBox(
                       sessionId,
                       'custom-nook-nocancel-hasclose',
@@ -779,6 +786,7 @@ List<TToggleMenu> toolbarPrivacyMode(
                       ffi.dialogManager);
                   return;
                 }
+                debugPrint('DEBUG_PRIVACY: 显示器检查通过，调用 toggleFunc');
                 final option = 'privacy-mode';
                 toggleFunc(sessionId, option);
               }
@@ -787,16 +795,32 @@ List<TToggleMenu> toolbarPrivacyMode(
   }
 
   // Android-specific privacy mode (black screen overlay)
+  debugPrint('DEBUG_PRIVACY: Flutter检查 pi.platform="${pi.platform}", kPeerPlatformAndroid="$kPeerPlatformAndroid"');
+  debugPrint('DEBUG_PRIVACY: privacyModeState="${privacyModeState.value}"');
+  debugPrint('DEBUG_PRIVACY: pi.platform == kPeerPlatformAndroid: ${pi.platform == kPeerPlatformAndroid}');
+  
   if (pi.platform == kPeerPlatformAndroid) {
+    debugPrint('DEBUG_PRIVACY: Android平台检查通过，创建隐私模式菜单');
     const androidImplKey = 'privacy_mode_impl_android';
     return [
       getDefaultMenu((sid, opt) async {
-        bind.sessionTogglePrivacyMode(
-            sessionId: sid, implKey: androidImplKey, on: privacyModeState.isEmpty);
+        debugPrint('DEBUG_PRIVACY: Flutter准备调用 sessionTogglePrivacyMode');
+        debugPrint('DEBUG_PRIVACY: sessionId=$sid, implKey=$androidImplKey, on=${privacyModeState.isEmpty}');
+        
+        try {
+          bind.sessionTogglePrivacyMode(
+              sessionId: sid, implKey: androidImplKey, on: privacyModeState.isEmpty);
+          debugPrint('DEBUG_PRIVACY: sessionTogglePrivacyMode调用完成');
+        } catch (e) {
+          debugPrint('DEBUG_PRIVACY: sessionTogglePrivacyMode调用失败: $e');
+        }
+        
         togglePrivacyModeTime = DateTime.now();
       })
     ];
   }
+  
+  debugPrint('DEBUG_PRIVACY: 不是Android平台，继续其他检查');
 
   final privacyModeImpls =
       pi.platformAdditions[kPlatformAdditionsSupportedPrivacyModeImpl]
