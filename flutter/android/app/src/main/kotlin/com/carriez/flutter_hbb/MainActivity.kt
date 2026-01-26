@@ -14,9 +14,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.ClipboardManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
 import android.media.MediaCodecInfo
@@ -281,6 +283,23 @@ class MainActivity : FlutterActivity() {
                     when (name) {
                         "toggle_privacy_mode" -> {
                             val enable = value?.toBoolean() ?: false
+                            Log.d("MainActivity", "DEBUG_PRIVACY: toggle_privacy_mode called: $enable")
+                            
+                            // Check overlay permission before enabling
+                            if (enable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                if (!Settings.canDrawOverlays(this)) {
+                                    Log.e("MainActivity", "DEBUG_PRIVACY: Overlay permission not granted")
+                                    // Request permission
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:$packageName")
+                                    )
+                                    startActivity(intent)
+                                    result.error("PERMISSION_DENIED", "需要悬浮窗权限才能使用隐私模式", null)
+                                    return@when
+                                }
+                            }
+                            
                             if (enable) {
                                 PrivacyModeService.startPrivacyMode(this)
                             } else {

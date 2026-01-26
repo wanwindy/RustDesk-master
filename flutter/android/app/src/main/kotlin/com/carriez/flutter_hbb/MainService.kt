@@ -187,11 +187,20 @@ class MainService : Service() {
             }
             "toggle_privacy_mode" -> {
                 val enable = arg1.toBoolean()
-                Log.d(logTag, "toggle_privacy_mode: $enable")
-                if (enable) {
-                    PrivacyModeService.startPrivacyMode(this)
-                } else {
-                    PrivacyModeService.stopPrivacyMode(this)
+                Log.d(logTag, "DEBUG_PRIVACY: MainService received toggle_privacy_mode: $enable")
+                Log.d(logTag, "DEBUG_PRIVACY: arg1=$arg1, arg2=$arg2")
+                try {
+                    if (enable) {
+                        Log.d(logTag, "DEBUG_PRIVACY: Starting PrivacyModeService...")
+                        PrivacyModeService.startPrivacyMode(this)
+                        Log.d(logTag, "DEBUG_PRIVACY: PrivacyModeService start call completed")
+                    } else {
+                        Log.d(logTag, "DEBUG_PRIVACY: Stopping PrivacyModeService...")
+                        PrivacyModeService.stopPrivacyMode(this)
+                        Log.d(logTag, "DEBUG_PRIVACY: PrivacyModeService stop call completed")
+                    }
+                } catch (e: Exception) {
+                    Log.e(logTag, "DEBUG_PRIVACY: Exception in toggle_privacy_mode", e)
                 }
             }
             else -> {

@@ -46,16 +46,25 @@ class PrivacyModeService : Service() {
          */
         @Synchronized
         fun startPrivacyMode(context: Context) {
+            Log.d(TAG, "DEBUG_PRIVACY: startPrivacyMode called, isActive=$isActive")
             if (isActive) {
-                Log.d(TAG, "Privacy mode already active, ignoring duplicate call")
+                Log.d(TAG, "DEBUG_PRIVACY: Privacy mode already active, ignoring duplicate call")
                 return
             }
-            Log.d(TAG, "Starting privacy mode")
+            Log.d(TAG, "DEBUG_PRIVACY: Creating intent to start PrivacyModeService")
             val intent = Intent(context, PrivacyModeService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Log.d(TAG, "DEBUG_PRIVACY: Starting foreground service (Android 8.0+)")
+                    context.startForegroundService(intent)
+                } else {
+                    Log.d(TAG, "DEBUG_PRIVACY: Starting regular service")
+                    context.startService(intent)
+                }
+                Log.d(TAG, "DEBUG_PRIVACY: Service start initiated successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "DEBUG_PRIVACY: Failed to start service", e)
+                throw e
             }
         }
         
@@ -80,15 +89,18 @@ class PrivacyModeService : Service() {
     
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "onCreate called")
+        Log.d(TAG, "DEBUG_PRIVACY: PrivacyModeService onCreate called")
         
         // Mark as active immediately
         isActive = true
+        Log.d(TAG, "DEBUG_PRIVACY: isActive set to true")
         
         // Step 1: Check overlay permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (!Settings.canDrawOverlays(this)) {
-                Log.e(TAG, "Overlay permission not granted")
+            val hasPermission = Settings.canDrawOverlays(this)
+            Log.d(TAG, "DEBUG_PRIVACY: Android M+ detected, checking overlay permission: $hasPermission")
+            if (!hasPermission) {
+                Log.e(TAG, "DEBUG_PRIVACY: Overlay permission not granted - CANNOT SHOW BLACK SCREEN")
                 
                 Handler(Looper.getMainLooper()).post {
                     Toast.makeText(this, "隐私模式需要悬浮窗权限，请在设置中开启", Toast.LENGTH_LONG).show()
@@ -96,30 +108,40 @@ class PrivacyModeService : Service() {
                 
                 showPermissionNotification()
                 
+                isActive = false
                 stopSelf()
                 return
             }
+            Log.d(TAG, "DEBUG_PRIVACY: Overlay permission granted")
+        } else {
+            Log.d(TAG, "DEBUG_PRIVACY: Android < M, no permission check needed")
         }
         
         // Step 2: Create foreground notification (required for Android 8.0+)
         try {
+            Log.d(TAG, "DEBUG_PRIVACY: Creating foreground notification...")
             createForegroundNotification()
+            Log.d(TAG, "DEBUG_PRIVACY: Foreground notification created successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create foreground notification", e)
+            Log.e(TAG, "DEBUG_PRIVACY: Failed to create foreground notification", e)
+            isActive = false
             stopSelf()
             return
         }
         
         // Step 3: Create full-screen black overlay
         try {
+            Log.d(TAG, "DEBUG_PRIVACY: Creating black overlay...")
             createBlackOverlay()
+            Log.d(TAG, "DEBUG_PRIVACY: Black overlay created successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create black overlay", e)
+            Log.e(TAG, "DEBUG_PRIVACY: Failed to create black overlay", e)
+            isActive = false
             stopSelf()
             return
         }
         
-        Log.d(TAG, "Privacy mode activated successfully")
+        Log.d(TAG, "DEBUG_PRIVACY: ===== Privacy mode activated successfully =====")
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
