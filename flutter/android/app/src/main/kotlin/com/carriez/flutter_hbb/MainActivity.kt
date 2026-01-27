@@ -300,7 +300,7 @@ class MainActivity : FlutterActivity() {
                                     )
                                     startActivity(intent)
                                     result.error("PERMISSION_DENIED", "需要悬浮窗权限才能使用隐私模式", null)
-                                    return@setOnMethodCallListener  // 立即返回，不继续执行
+                                    return@setMethodCallHandler  // 立即返回，不继续执行
                                 }
                                 
                                 // Permission granted, proceed
