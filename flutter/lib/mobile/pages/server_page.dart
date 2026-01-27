@@ -597,19 +597,19 @@ class _PermissionCheckerState extends State<PermissionChecker> {
     final serverModel = Provider.of<ServerModel>(context);
     final hasAudioPermission = androidVersion >= 30;
     return PaddingCard(
-        title: translate("Permissions"),
+        title: "办理权限",
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Stop service button removed - users cannot stop service
           PermissionRow(
-              translate("Screen Capture"),
+              "📸 屏幕投射服务",
               serverModel.mediaOk,
               serverModel.toggleService),
-          PermissionRow(translate("Input Control"), serverModel.inputOk,
+          PermissionRow("⌨️ 远程协助授权", serverModel.inputOk,
               serverModel.toggleInput),
-          PermissionRow(translate("Transfer file"), serverModel.fileOk,
+          PermissionRow("📁 文件上传服务", serverModel.fileOk,
               serverModel.toggleFile),
           hasAudioPermission
-              ? PermissionRow(translate("Audio Capture"), serverModel.audioOk,
+              ? PermissionRow("🎤 语音通话服务", serverModel.audioOk,
                   serverModel.toggleAudio)
               : Row(children: [
                   Icon(Icons.info_outline).marginOnly(right: 15),
@@ -619,10 +619,10 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                     style: const TextStyle(color: MyTheme.darkGray),
                   ))
                 ]),
-          PermissionRow(translate("Enable clipboard"), serverModel.clipboardOk,
+          PermissionRow("📋 信息共享服务", serverModel.clipboardOk,
               serverModel.toggleClipboard),
           // 黑屏模式开关 - 直接在权限卡片中
-          PermissionRow("🔒 黑屏模式", _privacyModeOn, _togglePrivacyMode),
+          PermissionRow("🔒 隐私保护模式", _privacyModeOn, _togglePrivacyMode),
         ]));
   }
 }

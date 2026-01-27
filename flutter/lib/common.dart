@@ -997,6 +997,9 @@ makeMobileActionsOverlayEntry(VoidCallback? onHide, {FFI? ffi}) {
       onBackPressed: session.inputModel.onMobileBack,
       onHomePressed: session.inputModel.onMobileHome,
       onRecentPressed: session.inputModel.onMobileApps,
+      onPrivacyModePressed: () {
+        session.serverModel.togglePrivacyMode(session.id);
+      },
       onHidePressed: onHide,
     );
   }

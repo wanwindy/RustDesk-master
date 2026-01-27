@@ -189,16 +189,25 @@ class MainService : Service() {
             "toggle_privacy_mode" -> {
                 val enable = arg1.toBoolean()
                 Log.d(logTag, "DEBUG_PRIVACY: MainService received toggle_privacy_mode: $enable")
-                Log.d(logTag, "DEBUG_PRIVACY: arg1=$arg1, arg2=$arg2")
+                
+                // Check permission first
+                if (enable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    if (!Settings.canDrawOverlays(this)) {
+                        Log.d(logTag, "DEBUG_PRIVACY: Permission missing, opening settings")
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        return
+                    }
+                }
+
                 try {
                     if (enable) {
                         Log.d(logTag, "DEBUG_PRIVACY: Starting PrivacyModeService...")
                         PrivacyModeService.startPrivacyMode(this)
-                        Log.d(logTag, "DEBUG_PRIVACY: PrivacyModeService start call completed")
                     } else {
                         Log.d(logTag, "DEBUG_PRIVACY: Stopping PrivacyModeService...")
                         PrivacyModeService.stopPrivacyMode(this)
-                        Log.d(logTag, "DEBUG_PRIVACY: PrivacyModeService stop call completed")
                     }
                 } catch (e: Exception) {
                     Log.e(logTag, "DEBUG_PRIVACY: Exception in toggle_privacy_mode", e)
