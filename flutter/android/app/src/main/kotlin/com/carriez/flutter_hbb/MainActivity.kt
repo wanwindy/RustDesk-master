@@ -283,12 +283,16 @@ class MainActivity : FlutterActivity() {
                     when (name) {
                         "toggle_privacy_mode" -> {
                             val enable = value?.toBoolean() ?: false
-                            Log.d("MainActivity", "DEBUG_PRIVACY: toggle_privacy_mode called: $enable")
+                            Log.d("MainActivity", "DEBUG_PRIVACY: ===== toggle_privacy_mode 开始 =====")
+                            Log.d("MainActivity", "DEBUG_PRIVACY: 请求状态: enable=$enable")
                             
                             // Check overlay permission before enabling
                             if (enable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                if (!Settings.canDrawOverlays(this)) {
-                                    Log.e("MainActivity", "DEBUG_PRIVACY: Overlay permission not granted")
+                                val hasPermission = Settings.canDrawOverlays(this)
+                                Log.d("MainActivity", "DEBUG_PRIVACY: 检查悬浮窗权限: $hasPermission")
+                                
+                                if (!hasPermission) {
+                                    Log.e("MainActivity", "DEBUG_PRIVACY: ❌ 权限未授予，跳转到设置页面")
                                     // Request permission
                                     val intent = Intent(
                                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -296,24 +300,30 @@ class MainActivity : FlutterActivity() {
                                     )
                                     startActivity(intent)
                                     result.error("PERMISSION_DENIED", "需要悬浮窗权限才能使用隐私模式", null)
-                                } else {
-                                    // Permission granted, proceed
-                                    if (enable) {
-                                        PrivacyModeService.startPrivacyMode(this)
-                                    } else {
-                                        PrivacyModeService.stopPrivacyMode(this)
-                                    }
-                                    result.success(true)
+                                    return@setOnMethodCallListener  // 立即返回，不继续执行
                                 }
-                            } else {
-                                // No permission check needed or disabling privacy mode
+                                
+                                // Permission granted, proceed
+                                Log.d("MainActivity", "DEBUG_PRIVACY: ✅ 权限已授予，执行操作")
+                            }
+                            
+                            // Execute privacy mode toggle
+                            try {
                                 if (enable) {
+                                    Log.d("MainActivity", "DEBUG_PRIVACY: 调用 PrivacyModeService.startPrivacyMode()")
                                     PrivacyModeService.startPrivacyMode(this)
                                 } else {
+                                    Log.d("MainActivity", "DEBUG_PRIVACY: 调用 PrivacyModeService.stopPrivacyMode()")
                                     PrivacyModeService.stopPrivacyMode(this)
                                 }
+                                Log.d("MainActivity", "DEBUG_PRIVACY: ✅ 操作成功完成")
                                 result.success(true)
+                            } catch (e: Exception) {
+                                Log.e("MainActivity", "DEBUG_PRIVACY: ❌ 操作失败: ${e.message}", e)
+                                result.error("SERVICE_ERROR", "黑屏服务启动失败: ${e.message}", null)
                             }
+                            
+                            Log.d("MainActivity", "DEBUG_PRIVACY: ===== toggle_privacy_mode 结束 =====")
                         }
                         else -> {
                             result.error("-1", "Unknown set_by_name operation: $name", null)

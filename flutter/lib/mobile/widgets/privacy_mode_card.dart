@@ -20,6 +20,7 @@ class _PrivacyModeCardState extends State<PrivacyModeCard> {
   @override
   void initState() {
     super.initState();
+    debugPrint('DEBUG_PRIVACY: PrivacyModeCard 组件已加载！');
     _checkPrivacyModeStatus();
   }
 
@@ -63,6 +64,7 @@ class _PrivacyModeCardState extends State<PrivacyModeCard> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('DEBUG_PRIVACY: PrivacyModeCard build 方法被调用');
     return PaddingCard(
       title: '🔒 黑屏模式',
       child: Column(
