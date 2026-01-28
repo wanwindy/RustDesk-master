@@ -13,6 +13,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../common.dart';
 import '../common/formatter/id_formatter.dart';
+import '../common/shared_state.dart';
 import '../desktop/pages/server_page.dart' as desktop;
 import '../desktop/widgets/tabbar_widget.dart';
 import '../mobile/pages/server_page.dart';
@@ -359,7 +360,7 @@ class ServerModel with ChangeNotifier {
     }
   }
 
-  togglePrivacyMode(String sessionId) async {
+  togglePrivacyMode(SessionID sessionId) async {
     // Toggle privacy mode for a remote Android device being controlled
     // This is called from the mobile actions overlay when controlling a remote Android device
     debugPrint("togglePrivacyMode called for sessionId: $sessionId");
