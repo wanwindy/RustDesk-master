@@ -367,7 +367,8 @@ class ServerModel with ChangeNotifier {
     
     const androidImplKey = 'privacy_mode_impl_android';
     // Get current privacy mode state
-    final privacyModeState = PrivacyModeState.find(sessionId);
+    // PrivacyModeState.find() expects a String, so convert SessionID (UuidValue) to String
+    final privacyModeState = PrivacyModeState.find(sessionId.uuid);
     
     try {
       await bind.sessionTogglePrivacyMode(
