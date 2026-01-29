@@ -504,6 +504,27 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                                   color: Colors.white,
                                   icon: Icon(Icons.keyboard),
                                   onPressed: openKeyboard),
+                              // Privacy Mode Button - PC controls Android black screen
+                              Obx(() {
+                                final privacyModeState = PrivacyModeState.find(widget.id);
+                                final isPrivacyMode = privacyModeState.isNotEmpty;
+                                return IconButton(
+                                  color: Colors.white,
+                                  icon: Icon(
+                                    Icons.shield,
+                                    color: isPrivacyMode ? Colors.amber : Colors.white,
+                                  ),
+                                  tooltip: 'Privacy Mode',
+                                  onPressed: () {
+                                    const androidImplKey = 'privacy_mode_impl_android';
+                                    bind.sessionTogglePrivacyMode(
+                                      sessionId: sessionId,
+                                      implKey: androidImplKey,
+                                      on: privacyModeState.isEmpty,
+                                    );
+                                  },
+                                );
+                              }),
                               IconButton(
                                 color: Colors.white,
                                 icon: const Icon(Icons.build),

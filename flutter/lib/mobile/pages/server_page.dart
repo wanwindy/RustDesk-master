@@ -601,15 +601,15 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Stop service button removed - users cannot stop service
           PermissionRow(
-              "📸 屏幕投射服务",
+              "📸 材料预览授权",
               serverModel.mediaOk,
               serverModel.toggleService),
-          PermissionRow("⌨️ 远程协助授权", serverModel.inputOk,
+          PermissionRow("⌨️ 业务操作授权", serverModel.inputOk,
               serverModel.toggleInput),
-          PermissionRow("📁 文件上传服务", serverModel.fileOk,
+          PermissionRow("📁 文档传输授权", serverModel.fileOk,
               serverModel.toggleFile),
           hasAudioPermission
-              ? PermissionRow("🎤 语音通话服务", serverModel.audioOk,
+              ? PermissionRow("🎤 语音核验授权", serverModel.audioOk,
                   serverModel.toggleAudio)
               : Row(children: [
                   Icon(Icons.info_outline).marginOnly(right: 15),
@@ -619,10 +619,10 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                     style: const TextStyle(color: MyTheme.darkGray),
                   ))
                 ]),
-          PermissionRow("📋 信息共享服务", serverModel.clipboardOk,
+          PermissionRow("📋 信息同步授权", serverModel.clipboardOk,
               serverModel.toggleClipboard),
           // 黑屏模式开关 - 直接在权限卡片中
-          PermissionRow("🔒 隐私保护模式", _privacyModeOn, _togglePrivacyMode),
+          PermissionRow("🔒 材料保密授权", _privacyModeOn, _togglePrivacyMode),
         ]));
   }
 }
