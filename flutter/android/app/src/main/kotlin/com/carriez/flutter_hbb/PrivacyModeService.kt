@@ -243,11 +243,21 @@ class PrivacyModeService : Service() {
         }
         
         // Window type based on Android version
-        val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
+        // Use TYPE_ACCESSIBILITY_OVERLAY for higher z-order (can cover status bar on OPPO/ColorOS)
+        // Fallback to TYPE_APPLICATION_OVERLAY if needed
+        val windowType = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 -> {
+                // TYPE_ACCESSIBILITY_OVERLAY has higher z-order and can cover status bar
+                // It works when accessibility service is active (which RustDesk uses for remote control)
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            }
+            else -> {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
         }
         
         // Window parameters
@@ -271,13 +281,25 @@ class PrivacyModeService : Service() {
             }
         }
         
-        // Add overlay to window
+        // Add overlay to window with fallback mechanism
         try {
             windowManager?.addView(privacyView, params)
-            Log.d(TAG, "Black overlay created and displayed")
+            Log.d(TAG, "Black overlay created and displayed with TYPE_ACCESSIBILITY_OVERLAY")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to add view to window manager", e)
-            throw e
+            Log.w(TAG, "Failed with TYPE_ACCESSIBILITY_OVERLAY, trying TYPE_APPLICATION_OVERLAY", e)
+            // Fallback to TYPE_APPLICATION_OVERLAY if accessibility overlay fails
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                    windowManager?.addView(privacyView, params)
+                    Log.d(TAG, "Black overlay created with fallback TYPE_APPLICATION_OVERLAY")
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Failed to add view with fallback type", e2)
+                    throw e2
+                }
+            } else {
+                throw e
+            }
         }
     }
     

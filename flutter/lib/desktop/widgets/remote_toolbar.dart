@@ -375,6 +375,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       toolbarItems.add(_MobileActionMenu(ffi: widget.ffi));
     }
 
+    // Add privacy mode toggle button for Android devices
+    if (widget.ffi.ffiModel.isPeerAndroid && widget.ffi.connType == ConnType.defaultConn) {
+      toolbarItems.add(_PrivacyModeButton(id: widget.id, ffi: widget.ffi));
+    }
+
     toolbarItems.add(Obx(() {
       if (PrivacyModeState.find(widget.id).isEmpty &&
           pi.displaysCount.value > 1) {
@@ -509,6 +514,43 @@ class _MobileActionMenu extends StatelessWidget {
               ? _ToolbarTheme.hoverBlueColor
               : _ToolbarTheme.hoverInactiveColor,
         ));
+  }
+}
+
+/// Privacy mode toggle button for Android devices
+/// Shows an eye icon that toggles the black screen overlay on the remote Android device
+class _PrivacyModeButton extends StatelessWidget {
+  final String id;
+  final FFI ffi;
+  const _PrivacyModeButton({Key? key, required this.id, required this.ffi}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    // Only show for Android devices with keyboard permission
+    if (!ffi.ffiModel.isPeerAndroid || !ffi.ffiModel.keyboard) {
+      return Offstage();
+    }
+
+    final privacyModeState = PrivacyModeState.find(id);
+    
+    return Obx(() {
+      final isOn = privacyModeState.isNotEmpty;
+      return _IconMenuButton(
+        assetName: isOn ? 'assets/eye_off.svg' : 'assets/eye.svg',
+        tooltip: isOn ? translate('Exit Privacy Mode') : translate('Privacy mode'),
+        onPressed: () {
+          debugPrint('DEBUG_PRIVACY: Privacy mode button clicked, current state: $isOn');
+          const androidImplKey = 'privacy_mode_impl_android';
+          bind.sessionTogglePrivacyMode(
+            sessionId: ffi.sessionId,
+            implKey: androidImplKey,
+            on: !isOn,
+          );
+        },
+        color: isOn ? _ToolbarTheme.redColor : _ToolbarTheme.inactiveColor,
+        hoverColor: isOn ? _ToolbarTheme.hoverRedColor : _ToolbarTheme.hoverInactiveColor,
+      );
+    });
   }
 }
 
