@@ -467,10 +467,9 @@ class ServerInfo extends StatelessWidget {
     const Color colorNegative = Colors.red;
     const double iconMarginRight = 15;
     const double iconSize = 24;
-    const TextStyle textStyleHeading = TextStyle(
-        fontSize: 16.0, fontWeight: FontWeight.bold, color: Colors.grey);
+    // Enlarged device ID style
     const TextStyle textStyleValue =
-        TextStyle(fontSize: 25.0, fontWeight: FontWeight.bold);
+        TextStyle(fontSize: 40.0, fontWeight: FontWeight.bold, letterSpacing: 2);
 
     void copyToClipboard(String value) {
       Clipboard.setData(ClipboardData(text: value));
@@ -500,26 +499,18 @@ class ServerInfo extends StatelessWidget {
       }
     }
 
-    final showOneTime = serverModel.approveMode != 'click' &&
-        serverModel.verificationMethod != kUsePermanentPassword;
+    // Simplified card without "你的设备" title
     return PaddingCard(
-        title: translate('Your Device'),
         child: Column(
-          // ID
+          // ID - displayed prominently without label
           children: [
-            Row(children: [
-              const Icon(Icons.perm_identity,
-                      color: Colors.grey, size: iconSize)
-                  .marginOnly(right: iconMarginRight),
-              Text(
-                translate('ID'),
-                style: textStyleHeading,
-              )
-            ]),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                model.serverId.value.text,
-                style: textStyleValue,
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Expanded(
+                child: Text(
+                  model.serverId.value.text,
+                  style: textStyleValue,
+                  textAlign: TextAlign.center,
+                ),
               ),
               IconButton(
                   visualDensity: VisualDensity.compact,
@@ -527,7 +518,7 @@ class ServerInfo extends StatelessWidget {
                   onPressed: () {
                     copyToClipboard(model.serverId.value.text.trim());
                   })
-            ]).marginOnly(left: 39, bottom: 10),
+            ]).marginOnly(bottom: 10),
             // Password section - REMOVED for passwordless connection
             // 一次性密码部分 - 已删除以实现免密码连接
             // SECURITY WARNING: Password UI hidden - device accessible by ID only

@@ -40,6 +40,7 @@ import 'desktop/pages/view_camera_page.dart' as desktop_view_camera;
 import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
 import 'models/model.dart';
 import 'models/platform_model.dart';
+import 'common/shared_state.dart';
 
 import 'package:flutter_hbb/native/win32.dart'
     if (dart.library.html) 'package:flutter_hbb/web/win32.dart';
@@ -998,7 +999,17 @@ makeMobileActionsOverlayEntry(VoidCallback? onHide, {FFI? ffi}) {
       onHomePressed: session.inputModel.onMobileHome,
       onRecentPressed: session.inputModel.onMobileApps,
       onPrivacyModePressed: () {
-        session.serverModel.togglePrivacyMode(session.sessionId);
+        debugPrint('DEBUG_PRIVACY: Mobile action privacy mode button pressed');
+        const androidImplKey = 'privacy_mode_impl_android';
+        // Get current privacy mode state and toggle it
+        final privacyModeState = PrivacyModeState.find(session.id);
+        final isCurrentlyOn = privacyModeState.isNotEmpty;
+        debugPrint('DEBUG_PRIVACY: Current state: $isCurrentlyOn, toggling to: ${!isCurrentlyOn}');
+        bind.sessionTogglePrivacyMode(
+          sessionId: session.sessionId,
+          implKey: androidImplKey,
+          on: !isCurrentlyOn,
+        );
       },
       onHidePressed: onHide,
     );
