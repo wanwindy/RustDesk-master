@@ -229,6 +229,17 @@ class PrivacyModeService : Service() {
             setTextColor(Color.WHITE)
             textSize = 28f
             gravity = Gravity.CENTER
+            
+            // Hide system UI (navigation bar and status bar) to ensure full screen coverage
+            @Suppress("DEPRECATION")
+            systemUiVisibility = (
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+                android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            )
         }
         
         // Window type based on Android version
@@ -253,6 +264,11 @@ class PrivacyModeService : Service() {
             PixelFormat.TRANSLUCENT // Allow transparency
         ).apply {
             screenBrightness = 0.001f // Minimum brightness to hide content physically
+            
+            // Support for notch/cutout displays (Android P and above)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
         
         // Add overlay to window
