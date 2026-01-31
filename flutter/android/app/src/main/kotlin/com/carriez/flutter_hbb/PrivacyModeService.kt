@@ -242,13 +242,25 @@ class PrivacyModeService : Service() {
             )
         }
         
-        // Window type based on Android version
-        // Use TYPE_ACCESSIBILITY_OVERLAY for higher z-order (can cover status bar on OPPO/ColorOS)
-        // Fallback to TYPE_APPLICATION_OVERLAY if needed
+        // Window type based on Android version and device manufacturer
+        // OPPO/ColorOS has issues with TYPE_ACCESSIBILITY_OVERLAY, use TYPE_APPLICATION_OVERLAY directly
+        val isOppoDevice = Build.MANUFACTURER.equals("OPPO", ignoreCase = true) ||
+                          Build.MANUFACTURER.equals("realme", ignoreCase = true) ||
+                          Build.MANUFACTURER.equals("OnePlus", ignoreCase = true) ||
+                          Build.BRAND.equals("OPPO", ignoreCase = true) ||
+                          Build.BRAND.equals("realme", ignoreCase = true)
+        
+        Log.d(TAG, "Device manufacturer: ${Build.MANUFACTURER}, Brand: ${Build.BRAND}, isOppoDevice: $isOppoDevice")
+        
         val windowType = when {
+            // For OPPO/realme/OnePlus, use TYPE_APPLICATION_OVERLAY directly
+            isOppoDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
+                Log.d(TAG, "Using TYPE_APPLICATION_OVERLAY for OPPO device")
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            }
+            // For other devices, try TYPE_ACCESSIBILITY_OVERLAY first (higher z-order)
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 -> {
-                // TYPE_ACCESSIBILITY_OVERLAY has higher z-order and can cover status bar
-                // It works when accessibility service is active (which RustDesk uses for remote control)
+                Log.d(TAG, "Using TYPE_ACCESSIBILITY_OVERLAY for non-OPPO device")
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
             }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
@@ -275,20 +287,32 @@ class PrivacyModeService : Service() {
         ).apply {
             screenBrightness = 0.001f // Minimum brightness to hide content physically
             
+            // Position at top-left corner and ensure full coverage
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+            
             // Support for notch/cutout displays (Android P and above)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            
+            // For OPPO devices, add extra flags for better compatibility
+            if (isOppoDevice) {
+                Log.d(TAG, "Applying OPPO-specific window flags")
+                // Ensure window covers navigation bar area on OPPO
+                flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
             }
         }
         
         // Add overlay to window with fallback mechanism
         try {
             windowManager?.addView(privacyView, params)
-            Log.d(TAG, "Black overlay created and displayed with TYPE_ACCESSIBILITY_OVERLAY")
+            Log.d(TAG, "Black overlay created and displayed with type: $windowType")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed with TYPE_ACCESSIBILITY_OVERLAY, trying TYPE_APPLICATION_OVERLAY", e)
-            // Fallback to TYPE_APPLICATION_OVERLAY if accessibility overlay fails
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Log.w(TAG, "Failed with windowType $windowType, trying fallback", e)
+            // Fallback to TYPE_APPLICATION_OVERLAY if initial type fails
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && windowType != WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
                 try {
                     params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                     windowManager?.addView(privacyView, params)
