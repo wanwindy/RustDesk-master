@@ -274,27 +274,46 @@ class PrivacyModeService : Service() {
         
         // Window parameters
         // Get real screen dimensions including status bar and navigation bar
-        val displayMetrics = resources.displayMetrics
-        var screenWidth = displayMetrics.widthPixels
-        var screenHeight = displayMetrics.heightPixels
+        // Use getRealMetrics for ALL devices to ensure full coverage
+        var screenWidth = 0
+        var screenHeight = 0
+        var statusBarHeight = 0
+        var navBarHeight = 0
         
-        // For OPPO, get the actual full screen size including system bars
-        if (isOppoDevice) {
-            try {
-                val display = windowManager?.defaultDisplay
-                val realMetrics = android.util.DisplayMetrics()
-                display?.getRealMetrics(realMetrics)
-                screenWidth = realMetrics.widthPixels
-                screenHeight = realMetrics.heightPixels
-                Log.d(TAG, "OPPO real screen size: ${screenWidth}x${screenHeight}")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to get real screen metrics", e)
+        try {
+            val display = windowManager?.defaultDisplay
+            val realMetrics = android.util.DisplayMetrics()
+            display?.getRealMetrics(realMetrics)
+            screenWidth = realMetrics.widthPixels
+            screenHeight = realMetrics.heightPixels
+            Log.d(TAG, "Real screen size: ${screenWidth}x${screenHeight}")
+            
+            // Get status bar height
+            val statusBarId = resources.getIdentifier("status_bar_height", "dimen", "android")
+            if (statusBarId > 0) {
+                statusBarHeight = resources.getDimensionPixelSize(statusBarId)
+                Log.d(TAG, "Status bar height: $statusBarHeight")
             }
+            
+            // Get navigation bar height
+            val navBarId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+            if (navBarId > 0) {
+                navBarHeight = resources.getDimensionPixelSize(navBarId)
+                Log.d(TAG, "Navigation bar height: $navBarHeight")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get screen metrics, using displayMetrics", e)
+            val displayMetrics = resources.displayMetrics
+            screenWidth = displayMetrics.widthPixels
+            screenHeight = displayMetrics.heightPixels
         }
         
+        // Extend height to cover status bar and nav bar
+        val totalHeight = screenHeight + statusBarHeight + navBarHeight
+        
         val params = WindowManager.LayoutParams(
-            screenWidth,  // Use actual screen width
-            screenHeight, // Use actual screen height (including status bar)
+            screenWidth,  // Use real screen width
+            totalHeight,  // Use extended height to cover all bars
             windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or  // Don't steal key focus
                     WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or   // Keep screen on
@@ -304,27 +323,24 @@ class PrivacyModeService : Service() {
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, // Allow touches to pass through (Critical for remote control)
             PixelFormat.OPAQUE // OPAQUE for 100% black, no transparency
         ).apply {
-            screenBrightness = 0.001f // Minimum brightness to hide content physically
+            // NOTE: Do NOT set screenBrightness here! It dims physical display and affects PC remote view
+            // The overlay itself is opaque black, which provides privacy locally
+            // PC can still see because MediaProjection captures below overlay layer
             
-            // Position at top-left corner and ensure full coverage
+            // Position to cover from above status bar
             gravity = Gravity.TOP or Gravity.START
             x = 0
-            y = 0
+            y = -statusBarHeight  // Negative offset to extend above status bar
             
             // Support for notch/cutout displays (Android P and above)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
             
             // For OPPO devices, add extra flags for better compatibility
             if (isOppoDevice) {
                 Log.d(TAG, "Applying OPPO-specific window flags")
-                // Ensure window covers navigation bar area and status bar on OPPO
                 flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
-                // Extend above status bar
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                }
             }
         }
         
