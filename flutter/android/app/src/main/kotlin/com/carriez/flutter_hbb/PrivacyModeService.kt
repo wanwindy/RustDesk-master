@@ -243,24 +243,34 @@ class PrivacyModeService : Service() {
         }
         
         // Window type based on Android version and device manufacturer
-        // OPPO/ColorOS has issues with TYPE_ACCESSIBILITY_OVERLAY, use TYPE_APPLICATION_OVERLAY directly
+        // Some manufacturers have issues with TYPE_ACCESSIBILITY_OVERLAY, use TYPE_APPLICATION_OVERLAY instead
         val isOppoDevice = Build.MANUFACTURER.equals("OPPO", ignoreCase = true) ||
                           Build.MANUFACTURER.equals("realme", ignoreCase = true) ||
                           Build.MANUFACTURER.equals("OnePlus", ignoreCase = true) ||
                           Build.BRAND.equals("OPPO", ignoreCase = true) ||
                           Build.BRAND.equals("realme", ignoreCase = true)
         
-        Log.d(TAG, "Device manufacturer: ${Build.MANUFACTURER}, Brand: ${Build.BRAND}, isOppoDevice: $isOppoDevice")
+        // Huawei/Honor devices also need TYPE_APPLICATION_OVERLAY
+        val isHuaweiDevice = Build.MANUFACTURER.equals("HUAWEI", ignoreCase = true) ||
+                            Build.MANUFACTURER.equals("HONOR", ignoreCase = true) ||
+                            Build.BRAND.equals("HUAWEI", ignoreCase = true) ||
+                            Build.BRAND.equals("HONOR", ignoreCase = true)
+        
+        // Check if device needs TYPE_APPLICATION_OVERLAY
+        val needsApplicationOverlay = isOppoDevice || isHuaweiDevice
+        
+        Log.d(TAG, "Device manufacturer: ${Build.MANUFACTURER}, Brand: ${Build.BRAND}")
+        Log.d(TAG, "isOppoDevice: $isOppoDevice, isHuaweiDevice: $isHuaweiDevice, needsApplicationOverlay: $needsApplicationOverlay")
         
         val windowType = when {
-            // For OPPO/realme/OnePlus, use TYPE_APPLICATION_OVERLAY directly
-            isOppoDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
-                Log.d(TAG, "Using TYPE_APPLICATION_OVERLAY for OPPO device")
+            // For OPPO/realme/OnePlus/Huawei/Honor, use TYPE_APPLICATION_OVERLAY directly
+            needsApplicationOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
+                Log.d(TAG, "Using TYPE_APPLICATION_OVERLAY for ${Build.MANUFACTURER} device")
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             }
-            // For other devices, try TYPE_ACCESSIBILITY_OVERLAY first (higher z-order)
+            // For other devices (Xiaomi, Samsung, etc.), try TYPE_ACCESSIBILITY_OVERLAY first (higher z-order)
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 -> {
-                Log.d(TAG, "Using TYPE_ACCESSIBILITY_OVERLAY for non-OPPO device")
+                Log.d(TAG, "Using TYPE_ACCESSIBILITY_OVERLAY for ${Build.MANUFACTURER} device")
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
             }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
@@ -337,9 +347,9 @@ class PrivacyModeService : Service() {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
             
-            // For OPPO devices, add extra flags for better compatibility
-            if (isOppoDevice) {
-                Log.d(TAG, "Applying OPPO-specific window flags")
+            // For OPPO/Huawei devices, add extra flags for better compatibility
+            if (needsApplicationOverlay) {
+                Log.d(TAG, "Applying extra window flags for ${Build.MANUFACTURER} device")
                 flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
             }
         }
