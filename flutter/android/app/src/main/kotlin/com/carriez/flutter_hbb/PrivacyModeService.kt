@@ -242,137 +242,89 @@ class PrivacyModeService : Service() {
             )
         }
         
-        // Window type based on Android version and device manufacturer
-        // Some manufacturers have issues with TYPE_ACCESSIBILITY_OVERLAY, use TYPE_APPLICATION_OVERLAY instead
-        val isOppoDevice = Build.MANUFACTURER.equals("OPPO", ignoreCase = true) ||
-                          Build.MANUFACTURER.equals("realme", ignoreCase = true) ||
-                          Build.MANUFACTURER.equals("OnePlus", ignoreCase = true) ||
-                          Build.BRAND.equals("OPPO", ignoreCase = true) ||
-                          Build.BRAND.equals("realme", ignoreCase = true)
-        
-        // Huawei/Honor devices also need TYPE_APPLICATION_OVERLAY
-        val isHuaweiDevice = Build.MANUFACTURER.equals("HUAWEI", ignoreCase = true) ||
-                            Build.MANUFACTURER.equals("HONOR", ignoreCase = true) ||
-                            Build.BRAND.equals("HUAWEI", ignoreCase = true) ||
-                            Build.BRAND.equals("HONOR", ignoreCase = true)
-        
-        // Check if device needs TYPE_APPLICATION_OVERLAY
-        val needsApplicationOverlay = isOppoDevice || isHuaweiDevice
+        // Window type strategy:
+        // TYPE_ACCESSIBILITY_OVERLAY - NOT captured by MediaProjection (PC can see screen)
+        // TYPE_APPLICATION_OVERLAY - IS captured by MediaProjection (PC sees black overlay)
+        // We MUST use TYPE_ACCESSIBILITY_OVERLAY for proper privacy mode (local-only black screen)
         
         Log.d(TAG, "Device manufacturer: ${Build.MANUFACTURER}, Brand: ${Build.BRAND}")
-        Log.d(TAG, "isOppoDevice: $isOppoDevice, isHuaweiDevice: $isHuaweiDevice, needsApplicationOverlay: $needsApplicationOverlay")
         
-        val windowType = when {
-            // For OPPO/realme/OnePlus/Huawei/Honor, use TYPE_APPLICATION_OVERLAY directly
-            needsApplicationOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
-                Log.d(TAG, "Using TYPE_APPLICATION_OVERLAY for ${Build.MANUFACTURER} device")
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            }
-            // For other devices (Xiaomi, Samsung, etc.), try TYPE_ACCESSIBILITY_OVERLAY first (higher z-order)
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 -> {
-                Log.d(TAG, "Using TYPE_ACCESSIBILITY_OVERLAY for ${Build.MANUFACTURER} device")
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-            }
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            }
-            else -> {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            }
+        // Always try TYPE_ACCESSIBILITY_OVERLAY first for ALL devices
+        // This ensures PC can see the actual screen while Android shows black overlay
+        val primaryWindowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
         }
         
-        // Window parameters
-        // Get real screen dimensions including status bar and navigation bar
-        // Use getRealMetrics for ALL devices to ensure full coverage
-        var screenWidth = 0
-        var screenHeight = 0
-        var statusBarHeight = 0
-        var navBarHeight = 0
+        Log.d(TAG, "Using primary window type: TYPE_ACCESSIBILITY_OVERLAY")
         
-        try {
-            val display = windowManager?.defaultDisplay
-            val realMetrics = android.util.DisplayMetrics()
-            display?.getRealMetrics(realMetrics)
-            screenWidth = realMetrics.widthPixels
-            screenHeight = realMetrics.heightPixels
-            Log.d(TAG, "Real screen size: ${screenWidth}x${screenHeight}")
-            
-            // Get status bar height
-            val statusBarId = resources.getIdentifier("status_bar_height", "dimen", "android")
-            if (statusBarId > 0) {
-                statusBarHeight = resources.getDimensionPixelSize(statusBarId)
-                Log.d(TAG, "Status bar height: $statusBarHeight")
-            }
-            
-            // Get navigation bar height
-            val navBarId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
-            if (navBarId > 0) {
-                navBarHeight = resources.getDimensionPixelSize(navBarId)
-                Log.d(TAG, "Navigation bar height: $navBarHeight")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to get screen metrics, using displayMetrics", e)
-            val displayMetrics = resources.displayMetrics
-            screenWidth = displayMetrics.widthPixels
-            screenHeight = displayMetrics.heightPixels
-        }
+        // Get screen dimensions - use Point for more reliable size
+        val display = windowManager?.defaultDisplay
+        val screenSize = android.graphics.Point()
+        display?.getRealSize(screenSize)
+        val screenWidth = screenSize.x
+        val screenHeight = screenSize.y
+        Log.d(TAG, "Screen size: ${screenWidth}x${screenHeight}")
         
-        // Extend height to cover status bar and nav bar
-        val totalHeight = screenHeight + statusBarHeight + navBarHeight
+        // Use MUCH larger dimensions to guarantee full coverage including status bar and nav bar
+        // This works with FLAG_LAYOUT_NO_LIMITS to extend beyond screen boundaries
+        val overlayWidth = screenWidth + 500  // Extra padding
+        val overlayHeight = screenHeight + 500  // Extra padding for status bar and nav bar
         
         val params = WindowManager.LayoutParams(
-            screenWidth,  // Use real screen width
-            totalHeight,  // Use extended height to cover all bars
-            windowType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or  // Don't steal key focus
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or   // Keep screen on
-                    WindowManager.LayoutParams.FLAG_FULLSCREEN or // Hide status bar (fullscreen mode)
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or // Allow drawing beyond screen boundaries
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or // Cover entire screen including bars
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, // Allow touches to pass through (Critical for remote control)
-            PixelFormat.OPAQUE // OPAQUE for 100% black, no transparency
+            overlayWidth,
+            overlayHeight,
+            primaryWindowType,
+            // Critical flags for full screen coverage
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or  // Allow touches to pass through
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or  // Draw beyond screen boundaries
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR,  // Cover inset areas
+            PixelFormat.OPAQUE
         ).apply {
-            // NOTE: Do NOT set screenBrightness here! It dims physical display and affects PC remote view
-            // The overlay itself is opaque black, which provides privacy locally
-            // PC can still see because MediaProjection captures below overlay layer
-            
-            // Position to cover from above status bar
+            // Position with negative offset to cover status bar (top) 
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = -statusBarHeight  // Negative offset to extend above status bar
+            x = -100  // Small offset to ensure left edge coverage
+            y = -250  // Large negative to cover status bar and any notch
             
-            // Support for notch/cutout displays (Android P and above)
+            // Support for notch/cutout displays (Android P+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
-            
-            // For OPPO/Huawei devices, add extra flags for better compatibility
-            if (needsApplicationOverlay) {
-                Log.d(TAG, "Applying extra window flags for ${Build.MANUFACTURER} device")
-                flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
+        }
+        
+        // Try to add view with TYPE_ACCESSIBILITY_OVERLAY first
+        var success = false
+        try {
+            windowManager?.addView(privacyView, params)
+            Log.d(TAG, "SUCCESS: Overlay added with TYPE_ACCESSIBILITY_OVERLAY")
+            success = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed with TYPE_ACCESSIBILITY_OVERLAY: ${e.message}")
+        }
+        
+        // If TYPE_ACCESSIBILITY_OVERLAY failed, try TYPE_APPLICATION_OVERLAY
+        // Note: This will cause PC to see black screen, but at least privacy mode works locally
+        if (!success && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Log.d(TAG, "Trying fallback: TYPE_APPLICATION_OVERLAY (PC will see black)")
+            try {
+                params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                windowManager?.addView(privacyView, params)
+                Log.d(TAG, "SUCCESS: Overlay added with TYPE_APPLICATION_OVERLAY (fallback)")
+                success = true
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed with TYPE_APPLICATION_OVERLAY: ${e2.message}")
             }
         }
         
-        // Add overlay to window with fallback mechanism
-        try {
-            windowManager?.addView(privacyView, params)
-            Log.d(TAG, "Black overlay created and displayed with type: $windowType")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed with windowType $windowType, trying fallback", e)
-            // Fallback to TYPE_APPLICATION_OVERLAY if initial type fails
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && windowType != WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
-                try {
-                    params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                    windowManager?.addView(privacyView, params)
-                    Log.d(TAG, "Black overlay created with fallback TYPE_APPLICATION_OVERLAY")
-                } catch (e2: Exception) {
-                    Log.e(TAG, "Failed to add view with fallback type", e2)
-                    throw e2
-                }
-            } else {
-                throw e
-            }
+        if (!success) {
+            throw RuntimeException("Failed to create black overlay with any window type")
         }
     }
     
