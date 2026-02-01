@@ -273,9 +273,28 @@ class PrivacyModeService : Service() {
         }
         
         // Window parameters
+        // Get real screen dimensions including status bar and navigation bar
+        val displayMetrics = resources.displayMetrics
+        var screenWidth = displayMetrics.widthPixels
+        var screenHeight = displayMetrics.heightPixels
+        
+        // For OPPO, get the actual full screen size including system bars
+        if (isOppoDevice) {
+            try {
+                val display = windowManager?.defaultDisplay
+                val realMetrics = android.util.DisplayMetrics()
+                display?.getRealMetrics(realMetrics)
+                screenWidth = realMetrics.widthPixels
+                screenHeight = realMetrics.heightPixels
+                Log.d(TAG, "OPPO real screen size: ${screenWidth}x${screenHeight}")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to get real screen metrics", e)
+            }
+        }
+        
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            screenWidth,  // Use actual screen width
+            screenHeight, // Use actual screen height (including status bar)
             windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or  // Don't steal key focus
                     WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or   // Keep screen on
@@ -283,7 +302,7 @@ class PrivacyModeService : Service() {
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or // Allow drawing beyond screen boundaries
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or // Cover entire screen including bars
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, // Allow touches to pass through (Critical for remote control)
-            PixelFormat.TRANSLUCENT // Allow transparency
+            PixelFormat.OPAQUE // OPAQUE for 100% black, no transparency
         ).apply {
             screenBrightness = 0.001f // Minimum brightness to hide content physically
             
@@ -300,8 +319,12 @@ class PrivacyModeService : Service() {
             // For OPPO devices, add extra flags for better compatibility
             if (isOppoDevice) {
                 Log.d(TAG, "Applying OPPO-specific window flags")
-                // Ensure window covers navigation bar area on OPPO
+                // Ensure window covers navigation bar area and status bar on OPPO
                 flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
+                // Extend above status bar
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
             }
         }
         
