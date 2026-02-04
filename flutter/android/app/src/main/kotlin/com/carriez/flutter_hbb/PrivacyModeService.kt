@@ -400,15 +400,23 @@ class PrivacyModeService : Service() {
     
     /**
      * Get ordered list of window types to try based on device type
+     * 
+     * IMPORTANT: TYPE_ACCESSIBILITY_OVERLAY is NOT captured by MediaProjection,
+     * which means PC can see the real screen while Android shows black overlay.
+     * TYPE_APPLICATION_OVERLAY IS captured by MediaProjection (both sides see black).
+     * 
+     * For privacy mode to work correctly (PC sees real screen, Android sees black),
+     * we MUST use TYPE_ACCESSIBILITY_OVERLAY as the primary window type.
      */
     private fun getWindowTypesForDevice(deviceType: DeviceType): List<Int> {
+        // All devices should prioritize TYPE_ACCESSIBILITY_OVERLAY
+        // because it's not captured by MediaProjection/screen recording
         return when (deviceType) {
             DeviceType.OPPO_COLOROS -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Using OPPO/ColorOS window type strategy")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Log.d(TAG, "DEBUG_PRIVACY: Using OPPO/ColorOS window type strategy (ACCESSIBILITY first)")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                     listOf(
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY  // Not captured by MediaProjection
                     )
                 } else {
                     @Suppress("DEPRECATION")
@@ -416,46 +424,34 @@ class PrivacyModeService : Service() {
                 }
             }
             DeviceType.HUAWEI_HONOR -> {
-                // Huawei/Honor: TYPE_APPLICATION_OVERLAY is most reliable
-                Log.d(TAG, "DEBUG_PRIVACY: Using HUAWEI/HONOR window type strategy")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Huawei/Honor: MUST use TYPE_ACCESSIBILITY_OVERLAY to avoid MediaProjection capture
+                Log.d(TAG, "DEBUG_PRIVACY: Using HUAWEI/HONOR window type strategy (ACCESSIBILITY for PC visibility)")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                     listOf(
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY  // Not captured by MediaProjection
                     )
                 } else {
                     @Suppress("DEPRECATION")
-                    listOf(
-                        WindowManager.LayoutParams.TYPE_PHONE,
-                        WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
-                    )
+                    listOf(WindowManager.LayoutParams.TYPE_PHONE)
                 }
             }
             DeviceType.XIAOMI_MIUI -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Using XIAOMI/MIUI window type strategy")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Log.d(TAG, "DEBUG_PRIVACY: Using XIAOMI/MIUI window type strategy (ACCESSIBILITY first)")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                     listOf(
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY  // Not captured by MediaProjection
                     )
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
                 } else {
                     @Suppress("DEPRECATION")
                     listOf(WindowManager.LayoutParams.TYPE_PHONE)
                 }
             }
             DeviceType.GENERIC -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Using GENERIC window type strategy")
+                Log.d(TAG, "DEBUG_PRIVACY: Using GENERIC window type strategy (ACCESSIBILITY first)")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        listOf(
-                            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                        )
-                    } else {
-                        listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-                    }
+                    listOf(
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY  // Not captured by MediaProjection
+                    )
                 } else {
                     @Suppress("DEPRECATION")
                     listOf(WindowManager.LayoutParams.TYPE_PHONE)
