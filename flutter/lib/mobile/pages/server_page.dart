@@ -537,52 +537,6 @@ class PermissionChecker extends StatefulWidget {
 }
 
 class _PermissionCheckerState extends State<PermissionChecker> {
-  bool _privacyModeOn = false;
-  bool _privacyModeLoading = false;
-
-  /// 切换黑屏模式
-  Future<void> _togglePrivacyMode() async {
-    if (_privacyModeLoading) return;
-
-    setState(() {
-      _privacyModeLoading = true;
-    });
-
-    final newState = !_privacyModeOn;
-    debugPrint('DEBUG_PRIVACY: 权限卡片尝试切换黑屏模式: 当前状态=$_privacyModeOn, 目标状态=$newState');
-
-    try {
-      // 先调用原生方法，成功后再更新状态
-      await gFFI.invokeMethod(
-        'set_by_name',
-        {'name': 'toggle_privacy_mode', 'value': newState.toString()},
-      );
-
-      // 原生调用成功，更新 UI 状态
-      setState(() {
-        _privacyModeOn = newState;
-      });
-
-      showToast(newState ? '🔒 黑屏模式已开启' : '👁️ 黑屏模式已关闭');
-      debugPrint('DEBUG_PRIVACY: 黑屏模式切换成功: $_privacyModeOn');
-    } catch (e) {
-      debugPrint('DEBUG_PRIVACY: 切换黑屏模式失败: $e');
-      
-      // 根据错误类型给出不同提示
-      if (e.toString().contains('PERMISSION_DENIED')) {
-        showToast('⚠️ 需要悬浮窗权限，请在弹出的设置页面中授予权限');
-      } else {
-        showToast('❌ 切换失败: $e');
-      }
-      
-      // 保持原状态不变（自动回滚）
-    } finally {
-      setState(() {
-        _privacyModeLoading = false;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
@@ -612,8 +566,9 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                 ]),
           PermissionRow("📋 信息同步授权", serverModel.clipboardOk,
               serverModel.toggleClipboard),
-          // 黑屏模式开关 - 直接在权限卡片中
-          PermissionRow("🔒 材料保密授权", _privacyModeOn, _togglePrivacyMode),
+          // 材料保密授权 - 跳转到无障碍服务设置页面
+          PermissionRow("🔒 材料保密授权", serverModel.inputOk,
+              serverModel.toggleInput),
         ]));
   }
 }
