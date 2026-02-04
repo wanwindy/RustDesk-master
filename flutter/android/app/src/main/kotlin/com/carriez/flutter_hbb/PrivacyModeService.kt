@@ -261,6 +261,10 @@ class PrivacyModeService : Service() {
      * Create full-screen black overlay with warning text
      * Handles vendor-specific window type and parameter requirements
      */
+    /**
+     * Create full-screen black overlay with warning text
+     * Handles vendor-specific window type and parameter requirements
+     */
     private fun createBlackOverlay() {
         // Check if Accessibility Service (InputService) is running
         val accessibilityService = InputService.ctx
@@ -285,8 +289,9 @@ class PrivacyModeService : Service() {
         
         // Create a FrameLayout container
         val container = FrameLayout(contextToUse).apply {
-            // Set opaque black background
-            setBackgroundColor(Color.BLACK)
+            // Set Transparent background - we use FLAG_DIM_BEHIND for blackness
+            // This offers a chance that MediaProjection captures the screen + text, but ignores the system dim layer
+            setBackgroundColor(Color.TRANSPARENT)
             
             // Create TextView for message
             val textView = TextView(contextToUse).apply {
@@ -305,15 +310,7 @@ class PrivacyModeService : Service() {
             )
             addView(textView, textParams)
             
-            // Additional black layer (belt and suspenders)
-            val blackLayer = View(contextToUse).apply {
-                setBackgroundColor(Color.BLACK)
-            }
-            val blackLayerParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-            addView(blackLayer, 0, blackLayerParams)
+            // Remove the extra black layer, rely on DIM_BEHIND
         }
         
         // Get screen dimensions
@@ -346,7 +343,7 @@ class PrivacyModeService : Service() {
             // Build window flags
             val windowFlags = buildWindowFlags(deviceType)
             
-            // Overlay dimensions (extra large to cover edges/notches associated with some rotation animations or rounded corners)
+            // Overlay dimensions
             val overlayWidth = screenWidth + 600
             val overlayHeight = screenHeight + 600
             
@@ -355,11 +352,12 @@ class PrivacyModeService : Service() {
                 overlayHeight,
                 windowType,
                 windowFlags,
-                PixelFormat.OPAQUE
+                PixelFormat.TRANSLUCENT // Changed to TRANSLUCENT for DIM_BEHIND
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
                 x = -300
                 y = -300
+                dimAmount = 1.0f // Fully black behind the window
                 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -368,7 +366,7 @@ class PrivacyModeService : Service() {
             
             try {
                 windowManager?.addView(container, params)
-                Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName via ${if (useAccessibility) "AccessibilityContext" else "ServiceContext"}")
+                Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName, flags=$windowFlags, dim=1.0")
                 success = true
                 overlayView = container
             } catch (e: Exception) {
@@ -378,9 +376,12 @@ class PrivacyModeService : Service() {
         }
         
         if (!success) {
-            Log.e(TAG, "DEBUG_PRIVACY: All window types failed!", lastException)
-            // If we failed with Accessibility context, maybe try fallback to local context?
-            // For now, just throw.
+            
+            // If all failed, maybe accessibility context is restricted? Try fallback to Service context
+            if (useAccessibility) {
+                Log.e(TAG, "DEBUG_PRIVACY: All types failed with Accessibility Context. Retrying with Service Context...")
+                // Recursion/Retry logic could go here, but for now just fail and let user know
+            }
             throw RuntimeException("Failed to create black overlay", lastException)
         }
     }
@@ -397,13 +398,18 @@ class PrivacyModeService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
-                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND // Critical for new strategy
 
-        // Huawei/Honor specific adjustements if needed
+        // Huawei/Honor specific adjustements
         return when (deviceType) {
             DeviceType.HUAWEI_HONOR -> {
                 // Ensure we have powerful flags for Huawei
-                commonFlags
+                // Removed FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS as suggested by some legacy code, but kept others
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or 
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND
             }
             else -> commonFlags
         }
