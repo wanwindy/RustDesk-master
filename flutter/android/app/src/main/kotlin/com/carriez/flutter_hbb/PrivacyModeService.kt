@@ -297,9 +297,14 @@ class PrivacyModeService : Service() {
             setBackgroundColor(Color.BLACK)
             
             // Try to exclude this specific view from screen capture (Android 14 / API 34+)
-            if (Build.VERSION.SDK_INT >= 34) { // Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-                Log.d(TAG, "DEBUG_PRIVACY: Applying setExcludeFromScreenCapture(true)")
-                setAllowScreenCapture(false) 
+            if (Build.VERSION.SDK_INT >= 34) { 
+                try {
+                    val method = View::class.java.getMethod("setAllowScreenCapture", Boolean::class.javaPrimitiveType)
+                    method.invoke(this, false)
+                    Log.d(TAG, "DEBUG_PRIVACY: Applied setAllowScreenCapture(false) via reflection")
+                } catch (e: Exception) {
+                    Log.w(TAG, "DEBUG_PRIVACY: Failed to invoke setAllowScreenCapture", e)
+                }
             }
             
             // Create TextView for message
