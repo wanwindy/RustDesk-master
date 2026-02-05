@@ -265,6 +265,10 @@ class PrivacyModeService : Service() {
      * Create full-screen black overlay with warning text
      * Handles vendor-specific window type and parameter requirements
      */
+    /**
+     * Create full-screen black overlay with warning text
+     * Handles vendor-specific window type and parameter requirements
+     */
     private fun createBlackOverlay() {
         // Check if Accessibility Service (InputService) is running
         val accessibilityService = InputService.ctx
@@ -289,9 +293,14 @@ class PrivacyModeService : Service() {
         
         // Create a FrameLayout container
         val container = FrameLayout(contextToUse).apply {
-            // Set Transparent background - we use FLAG_DIM_BEHIND for blackness
-            // This offers a chance that MediaProjection captures the screen + text, but ignores the system dim layer
-            setBackgroundColor(Color.TRANSPARENT)
+            // Revert to Opaque Black
+            setBackgroundColor(Color.BLACK)
+            
+            // Try to exclude this specific view from screen capture (Android 14 / API 34+)
+            if (Build.VERSION.SDK_INT >= 34) { // Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                Log.d(TAG, "DEBUG_PRIVACY: Applying setExcludeFromScreenCapture(true)")
+                setAllowScreenCapture(false) 
+            }
             
             // Create TextView for message
             val textView = TextView(contextToUse).apply {
@@ -310,7 +319,15 @@ class PrivacyModeService : Service() {
             )
             addView(textView, textParams)
             
-            // Remove the extra black layer, rely on DIM_BEHIND
+            // Additional black layer (belt and suspenders)
+            val blackLayer = View(contextToUse).apply {
+                setBackgroundColor(Color.BLACK)
+            }
+            val blackLayerParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            addView(blackLayer, 0, blackLayerParams)
         }
         
         // Get screen dimensions
@@ -352,12 +369,11 @@ class PrivacyModeService : Service() {
                 overlayHeight,
                 windowType,
                 windowFlags,
-                PixelFormat.TRANSLUCENT // Changed to TRANSLUCENT for DIM_BEHIND
+                PixelFormat.OPAQUE // Revert to OPAQUE
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
                 x = -300
                 y = -300
-                dimAmount = 1.0f // Fully black behind the window
                 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -366,7 +382,7 @@ class PrivacyModeService : Service() {
             
             try {
                 windowManager?.addView(container, params)
-                Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName, flags=$windowFlags, dim=1.0")
+                Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName via ${if (useAccessibility) "AccessibilityContext" else "ServiceContext"}")
                 success = true
                 overlayView = container
             } catch (e: Exception) {
@@ -376,12 +392,7 @@ class PrivacyModeService : Service() {
         }
         
         if (!success) {
-            
-            // If all failed, maybe accessibility context is restricted? Try fallback to Service context
-            if (useAccessibility) {
-                Log.e(TAG, "DEBUG_PRIVACY: All types failed with Accessibility Context. Retrying with Service Context...")
-                // Recursion/Retry logic could go here, but for now just fail and let user know
-            }
+            Log.e(TAG, "DEBUG_PRIVACY: All window types failed!", lastException)
             throw RuntimeException("Failed to create black overlay", lastException)
         }
     }
@@ -392,24 +403,26 @@ class PrivacyModeService : Service() {
     @Suppress("DEPRECATION")
     private fun buildWindowFlags(deviceType: DeviceType): Int {
         // Common flags for all devices to ensure coverage and no focus
+        // Added FLAG_SECURE: On some devices/ROMs, this excludes the window from MediaProjection (makes it transparent to the recorder)
+        // rather than blacking it out. Since we are drawing black anyway, if it blocks capture -> it's black (no worse).
+        // If it excludes capture -> we see content (Success).
         val commonFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
-                WindowManager.LayoutParams.FLAG_DIM_BEHIND // Critical for new strategy
+                WindowManager.LayoutParams.FLAG_SECURE
 
         // Huawei/Honor specific adjustements
         return when (deviceType) {
             DeviceType.HUAWEI_HONOR -> {
                 // Ensure we have powerful flags for Huawei
-                // Removed FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS as suggested by some legacy code, but kept others
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or 
-                WindowManager.LayoutParams.FLAG_DIM_BEHIND
+                WindowManager.LayoutParams.FLAG_SECURE
             }
             else -> commonFlags
         }
