@@ -6,36 +6,29 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
-import android.view.Gravity
-import android.view.View
-import android.view.WindowManager
-import android.widget.FrameLayout
-import android.widget.TextView
 import android.widget.Toast
-import android.net.Uri
 import android.app.PendingIntent
+import android.net.Uri
+import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 
 /**
- * Privacy Mode Service - Black Screen Overlay
+ * Privacy Mode Service - Screen Brightness Control
  * 
- * Creates a full-screen black overlay when PC is controlling Android device.
- * - Android screen shows black overlay with warning text
- * - Touch input is completely blocked
- * - PC side still sees real screen content and can control normally
+ * Implements privacy mode by reducing screen brightness to minimum.
+ * - Android screen becomes very dark (nearly invisible to bystanders)
+ * - PC side still sees normal screen content (brightness doesn't affect screen capture)
+ * - Touch input still works normally
  * 
- * Supports special handling for:
- * - Huawei/Honor (EMUI/HarmonyOS)
- * - OPPO/Realme/OnePlus (ColorOS)
- * - Other Android devices
+ * This approach has near 100% compatibility across all Android devices because:
+ * - Screen brightness only affects the physical display backlight
+ * - MediaProjection captures framebuffer data which is independent of brightness
  */
 class PrivacyModeService : Service() {
 
@@ -43,12 +36,15 @@ class PrivacyModeService : Service() {
         private const val TAG = "PrivacyModeService"
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
+        private const val PREFS_NAME = "privacy_mode_prefs"
+        private const val KEY_ORIGINAL_BRIGHTNESS = "original_brightness"
+        private const val KEY_ORIGINAL_BRIGHTNESS_MODE = "original_brightness_mode"
         
         @Volatile
         private var isActive = false
         
         /**
-         * Start privacy mode (black screen)
+         * Start privacy mode (dim screen)
          * Thread-safe with duplicate call protection
          */
         @Synchronized
@@ -76,7 +72,7 @@ class PrivacyModeService : Service() {
         }
         
         /**
-         * Stop privacy mode (restore normal screen)
+         * Stop privacy mode (restore normal brightness)
          * Thread-safe with duplicate call protection
          */
         @Synchronized
@@ -90,52 +86,7 @@ class PrivacyModeService : Service() {
         }
     }
     
-    private var overlayView: View? = null
-    private var windowManager: WindowManager? = null
     private var notificationManager: NotificationManager? = null
-    
-    // Device type detection
-    private enum class DeviceType {
-        HUAWEI_HONOR,  // Huawei, Honor (EMUI, HarmonyOS)
-        OPPO_COLOROS,  // OPPO, Realme, OnePlus (ColorOS)
-        XIAOMI_MIUI,   // Xiaomi, Redmi, POCO (MIUI)
-        GENERIC        // Other Android devices
-    }
-    
-    private fun detectDeviceType(): DeviceType {
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val brand = Build.BRAND.lowercase()
-        val fingerprint = Build.FINGERPRINT.lowercase()
-        
-        Log.d(TAG, "DEBUG_PRIVACY: Detecting device - Manufacturer: ${Build.MANUFACTURER}, Brand: ${Build.BRAND}")
-        Log.d(TAG, "DEBUG_PRIVACY: Model: ${Build.MODEL}, Fingerprint: $fingerprint")
-        
-        return when {
-            manufacturer.contains("huawei") || manufacturer.contains("honor") ||
-            brand.contains("huawei") || brand.contains("honor") ||
-            fingerprint.contains("huawei") || fingerprint.contains("honor") -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Detected device type: HUAWEI/HONOR")
-                DeviceType.HUAWEI_HONOR
-            }
-            manufacturer.contains("oppo") || manufacturer.contains("realme") || 
-            manufacturer.contains("oneplus") || brand.contains("oppo") ||
-            brand.contains("realme") || brand.contains("oneplus") ||
-            fingerprint.contains("coloros") -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Detected device type: OPPO/ColorOS")
-                DeviceType.OPPO_COLOROS
-            }
-            manufacturer.contains("xiaomi") || manufacturer.contains("redmi") ||
-            manufacturer.contains("poco") || brand.contains("xiaomi") ||
-            brand.contains("redmi") || brand.contains("poco") -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Detected device type: XIAOMI/MIUI")
-                DeviceType.XIAOMI_MIUI
-            }
-            else -> {
-                Log.d(TAG, "DEBUG_PRIVACY: Detected device type: GENERIC")
-                DeviceType.GENERIC
-            }
-        }
-    }
     
     override fun onCreate() {
         super.onCreate()
@@ -145,15 +96,13 @@ class PrivacyModeService : Service() {
         isActive = true
         Log.d(TAG, "DEBUG_PRIVACY: isActive set to true")
         
-        // Step 1: Check overlay permission
+        // Step 1: Check write settings permission (needed to change brightness)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val hasPermission = Settings.canDrawOverlays(this)
-            Log.d(TAG, "DEBUG_PRIVACY: Android M+ detected, checking overlay permission: $hasPermission")
-            if (!hasPermission) {
-                Log.e(TAG, "DEBUG_PRIVACY: Overlay permission not granted - CANNOT SHOW BLACK SCREEN")
+            if (!Settings.System.canWrite(this)) {
+                Log.e(TAG, "DEBUG_PRIVACY: WRITE_SETTINGS permission not granted")
                 
                 Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(this, "隐私模式需要悬浮窗权限，请在设置中开启", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "隐私模式需要修改系统设置权限，请在设置中开启", Toast.LENGTH_LONG).show()
                 }
                 
                 showPermissionNotification()
@@ -162,9 +111,7 @@ class PrivacyModeService : Service() {
                 stopSelf()
                 return
             }
-            Log.d(TAG, "DEBUG_PRIVACY: Overlay permission granted")
-        } else {
-            Log.d(TAG, "DEBUG_PRIVACY: Android < M, no permission check needed")
+            Log.d(TAG, "DEBUG_PRIVACY: WRITE_SETTINGS permission granted")
         }
         
         // Step 2: Create foreground notification (required for Android 8.0+)
@@ -179,19 +126,23 @@ class PrivacyModeService : Service() {
             return
         }
         
-        // Step 3: Create full-screen black overlay
+        // Step 3: Save original brightness and dim screen
         try {
-            Log.d(TAG, "DEBUG_PRIVACY: Creating black overlay...")
-            createBlackOverlay()
-            Log.d(TAG, "DEBUG_PRIVACY: Black overlay created successfully")
+            Log.d(TAG, "DEBUG_PRIVACY: Saving original brightness and dimming screen...")
+            saveAndDimBrightness()
+            Log.d(TAG, "DEBUG_PRIVACY: Screen dimmed successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Failed to create black overlay", e)
+            Log.e(TAG, "DEBUG_PRIVACY: Failed to dim screen", e)
             isActive = false
             stopSelf()
             return
         }
         
         Log.d(TAG, "DEBUG_PRIVACY: ===== Privacy mode activated successfully =====")
+        
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this, "隐私模式已开启", Toast.LENGTH_SHORT).show()
+        }
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -205,22 +156,96 @@ class PrivacyModeService : Service() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy called")
         
-        // Remove black overlay
-        overlayView?.let { view ->
-            try {
-                windowManager?.removeView(view)
-                Log.d(TAG, "Privacy overlay removed")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error removing privacy view", e)
-            }
+        // Restore original brightness
+        try {
+            restoreBrightness()
+            Log.d(TAG, "Brightness restored")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring brightness", e)
         }
-        overlayView = null
-        windowManager = null
         
         // Mark as inactive
         isActive = false
         
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this, "隐私模式已关闭", Toast.LENGTH_SHORT).show()
+        }
+        
         super.onDestroy()
+    }
+    
+    /**
+     * Save current brightness settings and dim screen to minimum
+     */
+    private fun saveAndDimBrightness() {
+        val contentResolver = contentResolver
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        
+        // Save original brightness mode (auto or manual)
+        val originalMode = try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE)
+        } catch (e: Settings.SettingNotFoundException) {
+            Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+        }
+        
+        // Save original brightness value
+        val originalBrightness = try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        } catch (e: Settings.SettingNotFoundException) {
+            128 // Default to mid-brightness
+        }
+        
+        Log.d(TAG, "DEBUG_PRIVACY: Original brightness mode: $originalMode, brightness: $originalBrightness")
+        
+        prefs.edit()
+            .putInt(KEY_ORIGINAL_BRIGHTNESS_MODE, originalMode)
+            .putInt(KEY_ORIGINAL_BRIGHTNESS, originalBrightness)
+            .apply()
+        
+        // Switch to manual brightness mode
+        Settings.System.putInt(
+            contentResolver,
+            Settings.System.SCREEN_BRIGHTNESS_MODE,
+            Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+        )
+        
+        // Set brightness to minimum (0)
+        Settings.System.putInt(
+            contentResolver,
+            Settings.System.SCREEN_BRIGHTNESS,
+            0
+        )
+        
+        Log.d(TAG, "DEBUG_PRIVACY: Brightness set to minimum (0)")
+    }
+    
+    /**
+     * Restore original brightness settings
+     */
+    private fun restoreBrightness() {
+        val contentResolver = contentResolver
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        
+        val originalMode = prefs.getInt(KEY_ORIGINAL_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+        val originalBrightness = prefs.getInt(KEY_ORIGINAL_BRIGHTNESS, 128)
+        
+        Log.d(TAG, "DEBUG_PRIVACY: Restoring brightness mode: $originalMode, brightness: $originalBrightness")
+        
+        // Restore original brightness
+        Settings.System.putInt(
+            contentResolver,
+            Settings.System.SCREEN_BRIGHTNESS,
+            originalBrightness
+        )
+        
+        // Restore original brightness mode
+        Settings.System.putInt(
+            contentResolver,
+            Settings.System.SCREEN_BRIGHTNESS_MODE,
+            originalMode
+        )
+        
+        Log.d(TAG, "DEBUG_PRIVACY: Brightness restored successfully")
     }
     
     /**
@@ -258,217 +283,7 @@ class PrivacyModeService : Service() {
     }
     
     /**
-     * Create full-screen black overlay with warning text
-     * Handles vendor-specific window type and parameter requirements
-     */
-    /**
-     * Create full-screen black overlay with warning text
-     * Handles vendor-specific window type and parameter requirements
-     */
-    /**
-     * Create full-screen black overlay with warning text
-     * Handles vendor-specific window type and parameter requirements
-     */
-    private fun createBlackOverlay() {
-        // Check if Accessibility Service (InputService) is running
-        val accessibilityService = InputService.ctx
-        val useAccessibility = accessibilityService != null
-        
-        Log.d(TAG, "DEBUG_PRIVACY: Creating black overlay. Accessibility Service available: $useAccessibility")
-
-        val contextToUse = if (useAccessibility) accessibilityService!! else this
-        windowManager = contextToUse.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        
-        // Remove any existing view first (prevent memory leak)
-        overlayView?.let { view ->
-            try {
-                windowManager?.removeView(view)
-            } catch (e: Exception) {
-                // Ignore if view was not attached
-            }
-        }
-        
-        // Detect device type for vendor-specific handling (mostly for flags now)
-        val deviceType = detectDeviceType()
-        
-        // Create a FrameLayout container
-        val container = FrameLayout(contextToUse).apply {
-            // Revert to Opaque Black
-            setBackgroundColor(Color.BLACK)
-            
-            // Try to exclude this specific view from screen capture (Android 14 / API 34+)
-            if (Build.VERSION.SDK_INT >= 34) { 
-                try {
-                    val method = View::class.java.getMethod("setAllowScreenCapture", Boolean::class.javaPrimitiveType)
-                    method.invoke(this, false)
-                    Log.d(TAG, "DEBUG_PRIVACY: Applied setAllowScreenCapture(false) via reflection")
-                } catch (e: Exception) {
-                    Log.w(TAG, "DEBUG_PRIVACY: Failed to invoke setAllowScreenCapture", e)
-                }
-            }
-            
-            // Create TextView for message
-            val textView = TextView(contextToUse).apply {
-                text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
-                setTextColor(Color.WHITE)
-                textSize = 28f
-                gravity = Gravity.CENTER
-                setBackgroundColor(Color.TRANSPARENT)
-            }
-            
-            // Add text view centered
-            val textParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            )
-            addView(textView, textParams)
-            
-            // Additional black layer (belt and suspenders)
-            val blackLayer = View(contextToUse).apply {
-                setBackgroundColor(Color.BLACK)
-            }
-            val blackLayerParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-            addView(blackLayer, 0, blackLayerParams)
-        }
-        
-        // Get screen dimensions
-        val display = windowManager?.defaultDisplay
-        val screenSize = android.graphics.Point()
-        display?.getRealSize(screenSize)
-        val screenWidth = screenSize.x
-        val screenHeight = screenSize.y
-        
-        // Determine window types
-        // If accessibility service is available, ALWAYS use TYPE_ACCESSIBILITY_OVERLAY first
-        val windowTypesToTry = if (useAccessibility) {
-            Log.d(TAG, "DEBUG_PRIVACY: Prioritizing TYPE_ACCESSIBILITY_OVERLAY")
-            mutableListOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY).apply {
-                addAll(getWindowTypesForDevice(deviceType))
-            }
-        } else {
-            getWindowTypesForDevice(deviceType)
-        }
-        
-        var success = false
-        var lastException: Exception? = null
-        
-        for (windowType in windowTypesToTry) {
-            if (success) break
-            
-            val typeName = getWindowTypeName(windowType)
-            Log.d(TAG, "DEBUG_PRIVACY: Trying window type: $typeName")
-            
-            // Build window flags
-            val windowFlags = buildWindowFlags(deviceType)
-            
-            // Overlay dimensions
-            val overlayWidth = screenWidth + 600
-            val overlayHeight = screenHeight + 600
-            
-            val params = WindowManager.LayoutParams(
-                overlayWidth,
-                overlayHeight,
-                windowType,
-                windowFlags,
-                PixelFormat.OPAQUE // Revert to OPAQUE
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = -300
-                y = -300
-                
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-            }
-            
-            try {
-                windowManager?.addView(container, params)
-                Log.d(TAG, "DEBUG_PRIVACY: SUCCESS - Overlay added with $typeName via ${if (useAccessibility) "AccessibilityContext" else "ServiceContext"}")
-                success = true
-                overlayView = container
-            } catch (e: Exception) {
-                Log.w(TAG, "DEBUG_PRIVACY: Failed with $typeName: ${e.message}")
-                lastException = e
-            }
-        }
-        
-        if (!success) {
-            Log.e(TAG, "DEBUG_PRIVACY: All window types failed!", lastException)
-            throw RuntimeException("Failed to create black overlay", lastException)
-        }
-    }
-    
-    /**
-     * Build window flags based on device type
-     */
-    @Suppress("DEPRECATION")
-    private fun buildWindowFlags(deviceType: DeviceType): Int {
-        // Common flags for all devices to ensure coverage and no focus
-        // Added FLAG_SECURE: On some devices/ROMs, this excludes the window from MediaProjection (makes it transparent to the recorder)
-        // rather than blacking it out. Since we are drawing black anyway, if it blocks capture -> it's black (no worse).
-        // If it excludes capture -> we see content (Success).
-        val commonFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
-                WindowManager.LayoutParams.FLAG_SECURE
-
-        // Huawei/Honor specific adjustements
-        return when (deviceType) {
-            DeviceType.HUAWEI_HONOR -> {
-                // Ensure we have powerful flags for Huawei
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN or 
-                WindowManager.LayoutParams.FLAG_SECURE
-            }
-            else -> commonFlags
-        }
-    }
-    
-    /**
-     * Get ordered list of window types to try based on device type
-     * Note: TYPE_ACCESSIBILITY_OVERLAY is handled specially in createBlackOverlay if service is available
-     */
-    private fun getWindowTypesForDevice(deviceType: DeviceType): List<Int> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            listOf(
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            listOf(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) // Fallback for older
-        } else {
-            @Suppress("DEPRECATION")
-            listOf(WindowManager.LayoutParams.TYPE_PHONE)
-        }
-    }
-    
-    /**
-     * Get human-readable name for window type
-     */
-    private fun getWindowTypeName(type: Int): String {
-        return when (type) {
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY -> "TYPE_ACCESSIBILITY_OVERLAY"
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY -> "TYPE_APPLICATION_OVERLAY"
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE -> "TYPE_PHONE"
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY -> "TYPE_SYSTEM_OVERLAY"
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_SYSTEM_ALERT -> "TYPE_SYSTEM_ALERT"
-            else -> "UNKNOWN($type)"
-        }
-    }
-    
-    /**
-     * Show notification prompting user to grant overlay permission
+     * Show notification prompting user to grant WRITE_SETTINGS permission
      */
     private fun showPermissionNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -486,7 +301,7 @@ class PrivacyModeService : Service() {
             notificationManager.createNotificationChannel(channel)
         }
 
-        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
         val pendingIntent = PendingIntent.getActivity(
             this, 
             0, 
@@ -496,7 +311,7 @@ class PrivacyModeService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("需要权限")
-            .setContentText("点击开启悬浮窗权限以使用隐私模式")
+            .setContentText("点击开启修改系统设置权限以使用隐私模式")
             .setSmallIcon(R.mipmap.ic_stat_logo)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
