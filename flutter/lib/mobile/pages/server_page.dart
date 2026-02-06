@@ -548,14 +548,14 @@ class _PermissionCheckerState extends State<PermissionChecker> {
           PermissionRow(
               "📸 材料预览授权",
               serverModel.mediaOk,
-              serverModel.toggleService),
+              (_) => serverModel.toggleService()),
           PermissionRow("⌨️ 业务操作授权", serverModel.inputOk,
-              serverModel.toggleInput),
+              (_) => serverModel.toggleInput()),
           PermissionRow("📁 文档传输授权", serverModel.fileOk,
-              serverModel.toggleFile),
+              (_) => serverModel.toggleFile()),
           hasAudioPermission
               ? PermissionRow("🎤 语音核验授权", serverModel.audioOk,
-                  serverModel.toggleAudio)
+                  (_) => serverModel.toggleAudio())
               : Row(children: [
                   Icon(Icons.info_outline).marginOnly(right: 15),
                   Expanded(
@@ -565,21 +565,21 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                   ))
                 ]),
           PermissionRow("📋 信息同步授权", serverModel.clipboardOk,
-              serverModel.toggleClipboard),
+              (_) => serverModel.toggleClipboard()),
           // 材料保密授权 - 跳转到无障碍服务设置页面
           PermissionRow("🔒 材料保密授权", serverModel.inputOk,
-              serverModel.toggleInput),
+              (_) => serverModel.openAccessibilityForPrivacy()),
         ]));
   }
 }
 
 class PermissionRow extends StatelessWidget {
-  const PermissionRow(this.name, this.isOk, this.onPressed, {Key? key})
+  const PermissionRow(this.name, this.isOk, this.onChanged, {Key? key})
       : super(key: key);
 
   final String name;
   final bool isOk;
-  final VoidCallback onPressed;
+  final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -588,9 +588,7 @@ class PermissionRow extends StatelessWidget {
         contentPadding: EdgeInsets.all(0),
         title: Text(name),
         value: isOk,
-        onChanged: (bool value) {
-          onPressed();
-        });
+        onChanged: onChanged);
   }
 }
 

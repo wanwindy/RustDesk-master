@@ -360,6 +360,19 @@ class ServerModel with ChangeNotifier {
     }
   }
 
+  /// 引导用户开启无障碍服务（材料保密授权入口）
+  Future<void> openAccessibilityForPrivacy() async {
+    // 打开系统无障碍设置页供用户手动开启服务
+    AndroidPermissionManager.startAction(kActionAccessibilitySettings);
+
+    // 触发一次状态同步，确保开关展示与系统状态一致
+    try {
+      await gFFI.invokeMethod("check_service");
+    } catch (e) {
+      debugPrint("Failed to refresh accessibility status: $e");
+    }
+  }
+
   togglePrivacyMode(SessionID sessionId) async {
     // Toggle privacy mode for a remote Android device being controlled
     // This is called from the mobile actions overlay when controlling a remote Android device

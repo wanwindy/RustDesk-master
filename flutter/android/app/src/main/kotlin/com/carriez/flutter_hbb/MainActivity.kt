@@ -27,6 +27,7 @@ import android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlan
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.DisplayMetrics
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import org.json.JSONArray
 import org.json.JSONObject
@@ -305,6 +306,22 @@ class MainActivity : FlutterActivity() {
                                 
                                 // Permission granted, proceed
                                 Log.d("MainActivity", "DEBUG_PRIVACY: ✅ 权限已授予，执行操作")
+                            }
+
+                            if (enable && !InputService.isOpen) {
+                                runOnUiThread {
+                                    Toast.makeText(
+                                        this,
+                                        "请先在“材料保密授权”中开启无障碍服务",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                result.error(
+                                    "ACCESSIBILITY_REQUIRED",
+                                    "Privacy mode requires accessibility service",
+                                    null
+                                )
+                                return@setMethodCallHandler
                             }
                             
                             // Execute privacy mode toggle

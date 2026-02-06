@@ -42,6 +42,15 @@ class _PrivacyModeCardState extends State<PrivacyModeCard> {
       final newState = !_isPrivacyModeOn.value;
       debugPrint('DEBUG_PRIVACY: Android端手动切换黑屏模式: $newState');
 
+      if (newState) {
+        // 开启前确认无障碍服务已就绪，避免服务崩溃中断连接
+        await gFFI.invokeMethod("check_service");
+        if (!gFFI.serverModel.inputOk) {
+          showToast('请先在“材料保密授权”中开启无障碍服务');
+          return;
+        }
+      }
+
       // 直接调用 Android 原生方法
       await gFFI.invokeMethod(
         'set_by_name',
