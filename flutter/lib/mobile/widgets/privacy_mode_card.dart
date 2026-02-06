@@ -49,6 +49,11 @@ class _PrivacyModeCardState extends State<PrivacyModeCard> {
           showToast('请先在“材料保密授权”中开启无障碍服务');
           return;
         }
+        // 黑屏依赖修改系统设置权限以调低亮度
+        if (!await gFFI.serverModel.ensureWriteSettingsForPrivacy()) {
+          showToast('请完成“自动办理授权”后再试');
+          return;
+        }
       }
 
       // 直接调用 Android 原生方法

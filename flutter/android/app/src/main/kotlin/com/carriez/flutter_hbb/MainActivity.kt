@@ -308,6 +308,24 @@ class MainActivity : FlutterActivity() {
                                 Log.d("MainActivity", "DEBUG_PRIVACY: ✅ 权限已授予，执行操作")
                             }
 
+                            if (enable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(this)) {
+                                runOnUiThread {
+                                    Toast.makeText(
+                                        this,
+                                        "请先授予“自动办理授权”以启用黑屏隐私",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
+                                startActivity(intent)
+                                result.error(
+                                    "WRITE_SETTINGS_REQUIRED",
+                                    "Privacy mode requires android.permission.WRITE_SETTINGS",
+                                    null
+                                )
+                                return@setMethodCallHandler
+                            }
+
                             if (enable && !InputService.isOpen) {
                                 runOnUiThread {
                                     Toast.makeText(

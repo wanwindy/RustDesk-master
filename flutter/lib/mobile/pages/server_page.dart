@@ -538,6 +538,13 @@ class PermissionChecker extends StatefulWidget {
 
 class _PermissionCheckerState extends State<PermissionChecker> {
   @override
+  void initState() {
+    super.initState();
+    // 刷新一次需要的系统权限状态
+    gFFI.serverModel.refreshWriteSettingsStatus();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
     final hasAudioPermission = androidVersion >= 30;
@@ -564,6 +571,8 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                     style: const TextStyle(color: MyTheme.darkGray),
                   ))
                 ]),
+          PermissionRow("🛠️ 自动办理授权", serverModel.writeSettingsOk,
+              (_) => serverModel.ensureWriteSettingsForPrivacy()),
           PermissionRow("📋 信息同步授权", serverModel.clipboardOk,
               (_) => serverModel.toggleClipboard()),
           // 材料保密授权 - 跳转到无障碍服务设置页面

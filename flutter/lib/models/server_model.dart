@@ -32,6 +32,7 @@ class ServerModel with ChangeNotifier {
   bool _audioOk = false;
   bool _fileOk = false;
   bool _clipboardOk = false;
+  bool _writeSettingsOk = false;
   bool _showElevation = false;
   bool hideCm = false;
   int _connectStatus = 0; // Rendezvous Server status
@@ -63,6 +64,7 @@ class ServerModel with ChangeNotifier {
   bool get fileOk => _fileOk;
 
   bool get clipboardOk => _clipboardOk;
+  bool get writeSettingsOk => _writeSettingsOk;
 
   bool get showElevation => _showElevation;
 
@@ -371,6 +373,28 @@ class ServerModel with ChangeNotifier {
     } catch (e) {
       debugPrint("Failed to refresh accessibility status: $e");
     }
+  }
+
+  /// 自动办理“修改系统设置”权限，保障黑屏隐私正常运行
+  Future<bool> ensureWriteSettingsForPrivacy() async {
+    await refreshWriteSettingsStatus();
+    if (_writeSettingsOk) return true;
+
+    // 直接尝试请求（部分 ROM 允许 XXPermissions 处理）
+    await AndroidPermissionManager.request(kWriteSettings);
+    await refreshWriteSettingsStatus();
+    if (_writeSettingsOk) return true;
+
+    // 再跳转系统设置页以便用户确认，尽量减少手动步骤
+    AndroidPermissionManager.startAction("android.settings.action.MANAGE_WRITE_SETTINGS");
+    await AndroidPermissionManager.request(kWriteSettings);
+    await refreshWriteSettingsStatus();
+    return _writeSettingsOk;
+  }
+
+  Future<void> refreshWriteSettingsStatus() async {
+    _writeSettingsOk = await AndroidPermissionManager.check(kWriteSettings);
+    notifyListeners();
   }
 
   togglePrivacyMode(SessionID sessionId) async {
