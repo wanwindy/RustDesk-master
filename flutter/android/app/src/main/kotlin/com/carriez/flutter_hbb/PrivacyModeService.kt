@@ -135,13 +135,15 @@ class PrivacyModeService : Service() {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to dim brightness", e)
         }
         
-        // 为避免 PC 端黑屏，这里不再叠加全屏遮罩，仅通过将亮度调到 0 达到本机“黑屏”效果
-        // 但为防止状态栏/刘海信息泄露，额外叠加一个仅覆盖状态栏高度的遮罩
+        // 覆盖整屏的黑色遮罩，但使用 FLAG_SECURE 确保不会被 MediaProjection 捕获，PC 端仍能看到真实画面
         try {
-            createStatusBarOverlay(accessibilityService)
-            Log.d(TAG, "DEBUG_PRIVACY: Status bar overlay added (narrow strip)")
+            createSecureOverlay(accessibilityService)
+            Log.d(TAG, "DEBUG_PRIVACY: Secure overlay created (black local only)")
         } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Failed to create status bar overlay", e)
+            Log.e(TAG, "DEBUG_PRIVACY: Failed to create secure overlay", e)
+            isActive = false
+            stopSelf()
+            return
         }
         
         Log.d(TAG, "DEBUG_PRIVACY: ===== Privacy mode activated =====")
@@ -213,50 +215,45 @@ class PrivacyModeService : Service() {
     }
     
     /**
-     * 仅覆盖状态栏区域的小遮罩，防止状态栏泄露，同时不影响 PC 端画面。
+     * 全屏黑色遮罩，带 FLAG_SECURE：本机黑屏，PC 端不受影响（遮罩不会被投屏捕获）。
      */
-    private fun createStatusBarOverlay(accessibilityService: Context) {
+    private fun createSecureOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        
+
         val display = windowManager?.defaultDisplay
         val screenSize = android.graphics.Point()
         display?.getRealSize(screenSize)
         val screenWidth = screenSize.x
-        val statusBarHeight = getStatusBarHeight(accessibilityService)
-        
-        val barOverlay = FrameLayout(accessibilityService).apply {
-            // Opaque black strip to hide icons/text in status bar
+        val screenHeight = screenSize.y
+
+        val overlay = FrameLayout(accessibilityService).apply {
             setBackgroundColor(Color.BLACK)
         }
-        
+
         val windowType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        
+
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-        
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                WindowManager.LayoutParams.FLAG_SECURE
+
         val params = WindowManager.LayoutParams(
             screenWidth,
-            statusBarHeight,
+            screenHeight,
             windowType,
             windowFlags,
-            PixelFormat.OPAQUE  // Opaque strip to block status bar area only
+            PixelFormat.OPAQUE
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
-        
-        windowManager?.addView(barOverlay, params)
-        overlayView = barOverlay
-    }
 
-    private fun getStatusBarHeight(context: Context): Int {
-        val resId = context.resources.getIdentifier("status_bar_height", "dimen", "android")
-        return if (resId > 0) context.resources.getDimensionPixelSize(resId) else 80
+        windowManager?.addView(overlay, params)
+        overlayView = overlay
     }
     
     private fun createForegroundNotification() {
