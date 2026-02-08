@@ -241,9 +241,24 @@ class PrivacyModeService : Service() {
             .putInt(KEY_ORIGINAL_BRIGHTNESS, originalBrightness)
             .apply()
         
+        // 多次设置亮度确保生效（某些设备需要）
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, 
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0)
+        
+        // 华为/荣耀设备延迟再次设置，确保亮度控制生效
+        if (isHuaweiDevice()) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, 
+                        Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0)
+                    Log.d(TAG, "DEBUG_PRIVACY: Re-applied brightness=0 for Huawei/Honor")
+                } catch (e: Exception) {
+                    Log.e(TAG, "DEBUG_PRIVACY: Failed to re-apply brightness", e)
+                }
+            }, 500)
+        }
     }
     
     private fun restoreBrightness() {
