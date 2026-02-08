@@ -276,13 +276,14 @@ class PrivacyModeService : Service() {
         Log.d(TAG, "DEBUG_PRIVACY: Screen size: ${screenWidth}x${screenHeight}")
 
         // 根据设备类型选择alpha值
-        // 华为/荣耀设备使用更高的alpha值确保足够暗
+        // 需要平衡：Android足够暗 vs PC仍可见
+        // 华为/荣耀设备使用稍高的alpha值
         val alphaValue = if (isHuaweiDevice()) {
-            Log.d(TAG, "DEBUG_PRIVACY: Using higher alpha (250) for Huawei/Honor device")
-            250
+            Log.d(TAG, "DEBUG_PRIVACY: Using alpha (245) for Huawei/Honor device")
+            245  // 降低了，确保PC可见
         } else {
-            Log.d(TAG, "DEBUG_PRIVACY: Using standard alpha (240)")
-            240
+            Log.d(TAG, "DEBUG_PRIVACY: Using standard alpha (235)")
+            235
         }
 
         val container = FrameLayout(accessibilityService).apply {
