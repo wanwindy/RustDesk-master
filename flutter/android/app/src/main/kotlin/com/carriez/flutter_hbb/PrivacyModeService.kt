@@ -277,10 +277,10 @@ class PrivacyModeService : Service() {
 
         // 根据设备类型选择alpha值
         // 需要平衡：Android足够暗 vs PC仍可见
-        // 华为/荣耀设备使用稍高的alpha值
+        // 华为/荣耀设备需要更低的alpha才能让PC看清
         val alphaValue = if (isHuaweiDevice()) {
-            Log.d(TAG, "DEBUG_PRIVACY: Using alpha (245) for Huawei/Honor device")
-            245  // 降低了，确保PC可见
+            Log.d(TAG, "DEBUG_PRIVACY: Using alpha (220) for Huawei/Honor device")
+            220  // 进一步降低，让PC看得更清楚
         } else {
             Log.d(TAG, "DEBUG_PRIVACY: Using standard alpha (235)")
             235
