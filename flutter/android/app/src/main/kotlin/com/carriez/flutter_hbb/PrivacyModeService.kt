@@ -216,11 +216,11 @@ class PrivacyModeService : Service() {
     }
     
     /**
-     * 创建透明背景覆盖层，只显示白色字幕
+     * 创建半透明黑色覆盖层 + 白色字幕
      * 
-     * 透明背景意味着：
-     * - PC看到：正常画面 + 白色字幕
-     * - 手机（亮度=0）：极暗背景 + 白色字幕（视觉效果接近黑屏+字幕）
+     * 半透明黑色背景（alpha=230）：
+     * - 手机（亮度=0 + 半透明黑色）：几乎纯黑，只看到白色字幕
+     * - PC：画面稍暗但清晰可见 + 白色字幕
      */
     private fun createTransparentTextOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -231,9 +231,11 @@ class PrivacyModeService : Service() {
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
 
-        // 创建容器 - 完全透明背景
+        // 创建容器 - 半透明黑色背景（alpha=230，接近不透明但PC仍可见底层）
         val container = FrameLayout(accessibilityService).apply {
-            setBackgroundColor(Color.TRANSPARENT)
+            // alpha: 0=完全透明, 255=完全不透明
+            // 使用230：手机端配合亮度=0几乎是纯黑，PC端仍能透过看到内容
+            setBackgroundColor(Color.argb(230, 0, 0, 0))
             
             // 白色字幕，带黑色描边效果（增加可读性）
             val textView = TextView(accessibilityService).apply {
