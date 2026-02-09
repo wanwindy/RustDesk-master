@@ -25,11 +25,13 @@ import android.net.Uri
 import androidx.core.app.NotificationCompat
 
 /**
- * Privacy Mode Service - 半透明遮罩 + 亮度控制方案
+ * Privacy Mode Service - 纯黑 + FLAG_SECURE 方案
  * 
- * 针对不同设备优化：
- * - 华为/荣耀设备：使用更高的alpha值(250)确保屏幕足够暗
- * - 其他设备：使用标准alpha值(240)
+ * 核心原理：
+ * - FLAG_SECURE 理论上会让窗口不被 MediaProjection 捕获
+ * - 这样 Android 端可以显示纯黑+文字，而 PC 端看到的是底层内容
+ * 
+ * 注意：FLAG_SECURE 的行为在不同设备上可能不同，需要实际测试验证
  */
 class PrivacyModeService : Service() {
 
@@ -44,9 +46,6 @@ class PrivacyModeService : Service() {
         @Volatile
         private var isActive = false
         
-        /**
-         * 检测是否是华为/荣耀设备
-         */
         private fun isHuaweiDevice(): Boolean {
             val manufacturer = Build.MANUFACTURER.lowercase()
             val brand = Build.BRAND.lowercase()
@@ -59,25 +58,20 @@ class PrivacyModeService : Service() {
         @Synchronized
         fun startPrivacyMode(context: Context) {
             Log.d(TAG, "DEBUG_PRIVACY: startPrivacyMode called")
-            Log.d(TAG, "DEBUG_PRIVACY: isActive=$isActive")
             Log.d(TAG, "DEBUG_PRIVACY: Device=${Build.MANUFACTURER} ${Build.MODEL}")
-            Log.d(TAG, "DEBUG_PRIVACY: isHuawei=${isHuaweiDevice()}")
             
             if (isActive) {
-                Log.d(TAG, "DEBUG_PRIVACY: Privacy mode already active, ignoring")
+                Log.d(TAG, "DEBUG_PRIVACY: Privacy mode already active")
                 return
             }
             
             val intent = Intent(context, PrivacyModeService::class.java)
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    Log.d(TAG, "DEBUG_PRIVACY: Starting foreground service...")
                     context.startForegroundService(intent)
                 } else {
-                    Log.d(TAG, "DEBUG_PRIVACY: Starting service...")
                     context.startService(intent)
                 }
-                Log.d(TAG, "DEBUG_PRIVACY: Service start command sent")
             } catch (e: Exception) {
                 Log.e(TAG, "DEBUG_PRIVACY: Failed to start service", e)
                 throw e
@@ -86,10 +80,7 @@ class PrivacyModeService : Service() {
         
         @Synchronized
         fun stopPrivacyMode(context: Context) {
-            Log.d(TAG, "DEBUG_PRIVACY: stopPrivacyMode called, isActive=$isActive")
-            if (!isActive) {
-                return
-            }
+            if (!isActive) return
             context.stopService(Intent(context, PrivacyModeService::class.java))
         }
     }
@@ -101,15 +92,10 @@ class PrivacyModeService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "DEBUG_PRIVACY: ========== PrivacyModeService onCreate ==========")
-        Log.d(TAG, "DEBUG_PRIVACY: Device: ${Build.MANUFACTURER} ${Build.MODEL}")
-        Log.d(TAG, "DEBUG_PRIVACY: Android: ${Build.VERSION.SDK_INT}")
         
         isActive = true
         
-        // 检查无障碍服务
         val accessibilityService = InputService.ctx
-        Log.d(TAG, "DEBUG_PRIVACY: AccessibilityService ctx = $accessibilityService")
-        
         if (accessibilityService == null) {
             Log.e(TAG, "DEBUG_PRIVACY: Accessibility service not enabled!")
             Handler(Looper.getMainLooper()).post {
@@ -120,12 +106,8 @@ class PrivacyModeService : Service() {
             return
         }
         
-        // 检查修改系统设置权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val canWrite = Settings.System.canWrite(this)
-            Log.d(TAG, "DEBUG_PRIVACY: canWrite settings = $canWrite")
-            
-            if (!canWrite) {
+            if (!Settings.System.canWrite(this)) {
                 Log.e(TAG, "DEBUG_PRIVACY: WRITE_SETTINGS permission not granted")
                 Handler(Looper.getMainLooper()).post {
                     Toast.makeText(this, "请开启修改系统设置权限", Toast.LENGTH_LONG).show()
@@ -137,11 +119,8 @@ class PrivacyModeService : Service() {
             }
         }
         
-        // 创建前台通知
         try {
-            Log.d(TAG, "DEBUG_PRIVACY: Creating foreground notification...")
             createForegroundNotification()
-            Log.d(TAG, "DEBUG_PRIVACY: Foreground notification created")
         } catch (e: Exception) {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to create notification", e)
             isActive = false
@@ -149,38 +128,28 @@ class PrivacyModeService : Service() {
             return
         }
         
-        // 调暗亮度到最低
+        // 亮度控制
         try {
-            Log.d(TAG, "DEBUG_PRIVACY: Dimming brightness...")
             saveAndDimBrightness()
-            Log.d(TAG, "DEBUG_PRIVACY: Brightness dimmed to 0")
         } catch (e: Exception) {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to dim brightness", e)
-            // 继续执行，即使亮度控制失败
         }
         
-        // 创建覆盖层
+        // 创建纯黑覆盖层 + FLAG_SECURE
         try {
-            Log.d(TAG, "DEBUG_PRIVACY: Creating overlay...")
-            createDarkOverlay(accessibilityService)
-            Log.d(TAG, "DEBUG_PRIVACY: Overlay created successfully")
+            createSecureBlackOverlay(accessibilityService)
+            Log.d(TAG, "DEBUG_PRIVACY: Secure black overlay created with FLAG_SECURE")
         } catch (e: Exception) {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to create overlay", e)
-            e.printStackTrace()
             isActive = false
             stopSelf()
             return
         }
         
         Log.d(TAG, "DEBUG_PRIVACY: ========== Privacy mode activated ==========")
-        
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(this, "隐私模式已开启", Toast.LENGTH_SHORT).show()
-        }
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "DEBUG_PRIVACY: onStartCommand called")
         return START_NOT_STICKY
     }
     
@@ -192,9 +161,8 @@ class PrivacyModeService : Service() {
         overlayView?.let { view ->
             try {
                 windowManager?.removeView(view)
-                Log.d(TAG, "DEBUG_PRIVACY: Overlay removed")
             } catch (e: Exception) {
-                Log.e(TAG, "DEBUG_PRIVACY: Error removing overlay", e)
+                Log.e(TAG, "Error removing overlay", e)
             }
         }
         overlayView = null
@@ -202,17 +170,11 @@ class PrivacyModeService : Service() {
         
         try {
             restoreBrightness()
-            Log.d(TAG, "DEBUG_PRIVACY: Brightness restored")
         } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Error restoring brightness", e)
+            Log.e(TAG, "Error restoring brightness", e)
         }
         
         isActive = false
-        
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(this, "隐私模式已关闭", Toast.LENGTH_SHORT).show()
-        }
-        
         super.onDestroy()
     }
     
@@ -223,37 +185,30 @@ class PrivacyModeService : Service() {
         val originalMode = try {
             Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE)
         } catch (e: Exception) {
-            Log.w(TAG, "DEBUG_PRIVACY: Could not get brightness mode", e)
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
         }
         
         val originalBrightness = try {
             Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS)
         } catch (e: Exception) {
-            Log.w(TAG, "DEBUG_PRIVACY: Could not get brightness", e)
             128
         }
-        
-        Log.d(TAG, "DEBUG_PRIVACY: Original brightness=$originalBrightness, mode=$originalMode")
         
         prefs.edit()
             .putInt(KEY_ORIGINAL_BRIGHTNESS_MODE, originalMode)
             .putInt(KEY_ORIGINAL_BRIGHTNESS, originalBrightness)
             .apply()
         
-        // 多次设置亮度确保生效（某些设备需要）
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, 
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0)
         
-        // 华为/荣耀设备延迟再次设置，确保亮度控制生效
         if (isHuaweiDevice()) {
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, 
                         Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0)
-                    Log.d(TAG, "DEBUG_PRIVACY: Re-applied brightness=0 for Huawei/Honor")
                 } catch (e: Exception) {
                     Log.e(TAG, "DEBUG_PRIVACY: Failed to re-apply brightness", e)
                 }
@@ -269,17 +224,19 @@ class PrivacyModeService : Service() {
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         val originalBrightness = prefs.getInt(KEY_ORIGINAL_BRIGHTNESS, 128)
         
-        Log.d(TAG, "DEBUG_PRIVACY: Restoring brightness=$originalBrightness, mode=$originalMode")
-        
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, originalBrightness)
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, originalMode)
     }
     
     /**
-     * 创建深色覆盖层
-     * 针对华为/荣耀设备使用更高的alpha值
+     * 创建纯黑覆盖层 + FLAG_SECURE
+     * 
+     * FLAG_SECURE 的作用：
+     * - 标准行为：窗口内容不会被截屏/录屏捕获
+     * - 理论上 MediaProjection 会跳过这个窗口或显示为透明
+     * - 这样 PC 端应该能看到底层内容，而 Android 端看到纯黑+文字
      */
-    private fun createDarkOverlay(accessibilityService: Context) {
+    private fun createSecureBlackOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val display = windowManager?.defaultDisplay
@@ -287,22 +244,12 @@ class PrivacyModeService : Service() {
         display?.getRealSize(screenSize)
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
-        
-        Log.d(TAG, "DEBUG_PRIVACY: Screen size: ${screenWidth}x${screenHeight}")
 
-        // 根据设备类型选择alpha值
-        // 需要平衡：Android足够暗 vs PC仍可见
-        // 荣耀设备亮度控制无效，只能依赖alpha
-        val alphaValue = if (isHuaweiDevice()) {
-            Log.d(TAG, "DEBUG_PRIVACY: Using alpha (235) for Huawei/Honor device")
-            235  // 比其他设备高一点，补偿亮度控制无效
-        } else {
-            Log.d(TAG, "DEBUG_PRIVACY: Using standard alpha (235)")
-            235
-        }
+        Log.d(TAG, "DEBUG_PRIVACY: Creating SECURE overlay, screen: ${screenWidth}x${screenHeight}")
 
+        // 纯黑不透明背景 + 白色文字
         val container = FrameLayout(accessibilityService).apply {
-            setBackgroundColor(Color.argb(alphaValue, 0, 0, 0))
+            setBackgroundColor(Color.BLACK)  // 纯黑
             
             val textView = TextView(accessibilityService).apply {
                 text = "系统正在对接服务中心\n请勿触碰手机屏幕\n避免影响业务\n请耐心等待......"
@@ -322,26 +269,27 @@ class PrivacyModeService : Service() {
         }
 
         val windowType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        Log.d(TAG, "DEBUG_PRIVACY: Using window type: TYPE_ACCESSIBILITY_OVERLAY")
 
+        // 关键：添加 FLAG_SECURE 防止被捕获
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                WindowManager.LayoutParams.FLAG_SECURE  // 关键标志
+
+        Log.d(TAG, "DEBUG_PRIVACY: Window flags include FLAG_SECURE")
 
         val extraSize = 500
         val overlayWidth = screenWidth + extraSize * 2
         val overlayHeight = screenHeight + extraSize * 2
-        
-        Log.d(TAG, "DEBUG_PRIVACY: Overlay size: ${overlayWidth}x${overlayHeight}")
 
         val params = WindowManager.LayoutParams(
             overlayWidth,
             overlayHeight,
             windowType,
             windowFlags,
-            PixelFormat.TRANSLUCENT
+            PixelFormat.OPAQUE  // 不透明
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -extraSize
@@ -353,14 +301,10 @@ class PrivacyModeService : Service() {
             }
         }
 
-        try {
-            windowManager?.addView(container, params)
-            overlayView = container
-            Log.d(TAG, "DEBUG_PRIVACY: Overlay view added to WindowManager")
-        } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Failed to add overlay view", e)
-            throw e
-        }
+        windowManager?.addView(container, params)
+        overlayView = container
+        
+        Log.d(TAG, "DEBUG_PRIVACY: SECURE overlay added successfully")
     }
     
     private fun createForegroundNotification() {
