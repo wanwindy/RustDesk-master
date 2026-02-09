@@ -43,7 +43,9 @@ class PrivacyModeService : Service() {
         private const val KEY_ORIGINAL_BRIGHTNESS = "original_brightness"
         private const val KEY_ORIGINAL_BRIGHTNESS_MODE = "original_brightness_mode"
         private const val KEY_ORIGINAL_BRIGHTNESS_FLOAT = "original_brightness_float"
-        // 关闭时：本地黑屏、远端可见（默认）；打开时：禁止截屏但远端也会黑
+        // 是否叠加遮罩层；关闭时仅靠亮度=0，本地几乎黑，远端完全可见
+        private const val USE_OVERLAY = false
+        // 叠加遮罩时，是否使用 FLAG_SECURE（会让某些机型远端全黑）
         private const val USE_SECURE_OVERLAY = false
 
         @Volatile
@@ -138,15 +140,19 @@ class PrivacyModeService : Service() {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to dim brightness", e)
         }
         
-        // 创建纯黑覆盖层（可选 FLAG_SECURE）
-        try {
-            createSecureBlackOverlay(accessibilityService)
-            Log.d(TAG, "DEBUG_PRIVACY: Secure black overlay created with FLAG_SECURE")
-        } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Failed to create overlay", e)
-            isActive = false
-            stopSelf()
-            return
+        // 仅在需要时创建遮罩，默认关闭以保证 PC 端可见
+        if (USE_OVERLAY) {
+            try {
+                createSecureBlackOverlay(accessibilityService)
+                Log.d(TAG, "DEBUG_PRIVACY: overlay created, secure=$USE_SECURE_OVERLAY")
+            } catch (e: Exception) {
+                Log.e(TAG, "DEBUG_PRIVACY: Failed to create overlay", e)
+                isActive = false
+                stopSelf()
+                return
+            }
+        } else {
+            Log.d(TAG, "DEBUG_PRIVACY: overlay disabled, using brightness-only mode")
         }
         
         Log.d(TAG, "DEBUG_PRIVACY: ========== Privacy mode activated ==========")
