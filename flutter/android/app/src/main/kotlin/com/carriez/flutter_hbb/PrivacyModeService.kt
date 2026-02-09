@@ -42,6 +42,7 @@ class PrivacyModeService : Service() {
         private const val PREFS_NAME = "privacy_mode_prefs"
         private const val KEY_ORIGINAL_BRIGHTNESS = "original_brightness"
         private const val KEY_ORIGINAL_BRIGHTNESS_MODE = "original_brightness_mode"
+        private const val KEY_ORIGINAL_BRIGHTNESS_FLOAT = "original_brightness_float"
         // 关闭时：本地黑屏、远端可见（默认）；打开时：禁止截屏但远端也会黑
         private const val USE_SECURE_OVERLAY = false
 
@@ -201,9 +202,17 @@ class PrivacyModeService : Service() {
             .putInt(KEY_ORIGINAL_BRIGHTNESS, originalBrightness)
             .apply()
         
-        Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, 
+        Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE,
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0)
+        // Android 12+ 支持 float 亮度，某些机型（荣耀/华为）仅接受 float 才能真正拉到 0
+        try {
+            Settings.System.putFloat(contentResolver, "screen_brightness_float", 0f)
+        } catch (_: Exception) { /* 忽略不支持的机型 */ }
+        // VR 亮度也置 0，避免部分 ROM 读取该值
+        try {
+            Settings.System.putInt(contentResolver, "screen_brightness_for_vr", 0)
+        } catch (_: Exception) { /* 忽略不支持的机型 */ }
         
         if (isHuaweiDevice()) {
             Handler(Looper.getMainLooper()).postDelayed({
@@ -211,6 +220,7 @@ class PrivacyModeService : Service() {
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, 
                         Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0)
+                    Settings.System.putFloat(contentResolver, "screen_brightness_float", 0f)
                 } catch (e: Exception) {
                     Log.e(TAG, "DEBUG_PRIVACY: Failed to re-apply brightness", e)
                 }
@@ -222,12 +232,16 @@ class PrivacyModeService : Service() {
         val contentResolver = contentResolver
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         
-        val originalMode = prefs.getInt(KEY_ORIGINAL_BRIGHTNESS_MODE, 
+        val originalMode = prefs.getInt(KEY_ORIGINAL_BRIGHTNESS_MODE,
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
         val originalBrightness = prefs.getInt(KEY_ORIGINAL_BRIGHTNESS, 128)
-        
+        val originalBrightnessFloat = prefs.getFloat(KEY_ORIGINAL_BRIGHTNESS_FLOAT, -1f)
+
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, originalBrightness)
         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, originalMode)
+        if (originalBrightnessFloat >= 0f) {
+            try { Settings.System.putFloat(contentResolver, "screen_brightness_float", originalBrightnessFloat) } catch (_: Exception) {}
+        }
     }
     
     /**
