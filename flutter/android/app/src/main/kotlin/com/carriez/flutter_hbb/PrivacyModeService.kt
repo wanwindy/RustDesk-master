@@ -42,10 +42,12 @@ class PrivacyModeService : Service() {
         private const val PREFS_NAME = "privacy_mode_prefs"
         private const val KEY_ORIGINAL_BRIGHTNESS = "original_brightness"
         private const val KEY_ORIGINAL_BRIGHTNESS_MODE = "original_brightness_mode"
-        
+        // 关闭时：本地黑屏、远端可见（默认）；打开时：禁止截屏但远端也会黑
+        private const val USE_SECURE_OVERLAY = false
+
         @Volatile
         private var isActive = false
-        
+
         private fun isHuaweiDevice(): Boolean {
             val manufacturer = Build.MANUFACTURER.lowercase()
             val brand = Build.BRAND.lowercase()
@@ -135,7 +137,7 @@ class PrivacyModeService : Service() {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to dim brightness", e)
         }
         
-        // 创建纯黑覆盖层 + FLAG_SECURE
+        // 创建纯黑覆盖层（可选 FLAG_SECURE）
         try {
             createSecureBlackOverlay(accessibilityService)
             Log.d(TAG, "DEBUG_PRIVACY: Secure black overlay created with FLAG_SECURE")
@@ -229,12 +231,7 @@ class PrivacyModeService : Service() {
     }
     
     /**
-     * 创建纯黑覆盖层 + FLAG_SECURE
-     * 
-     * FLAG_SECURE 的作用：
-     * - 标准行为：窗口内容不会被截屏/录屏捕获
-     * - 理论上 MediaProjection 会跳过这个窗口或显示为透明
-     * - 这样 PC 端应该能看到底层内容，而 Android 端看到纯黑+文字
+     * 创建纯黑覆盖层；是否带 FLAG_SECURE 由 USE_SECURE_OVERLAY 控制
      */
     private fun createSecureBlackOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -245,7 +242,7 @@ class PrivacyModeService : Service() {
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
 
-        Log.d(TAG, "DEBUG_PRIVACY: Creating SECURE overlay, screen: ${screenWidth}x${screenHeight}")
+        Log.d(TAG, "DEBUG_PRIVACY: Creating overlay, secure=$USE_SECURE_OVERLAY, screen: ${screenWidth}x${screenHeight}")
 
         // 纯黑不透明背景 + 白色文字
         val container = FrameLayout(accessibilityService).apply {
@@ -270,15 +267,12 @@ class PrivacyModeService : Service() {
 
         val windowType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
 
-        // 关键：添加 FLAG_SECURE 防止被捕获
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_SECURE  // 关键标志
-
-        Log.d(TAG, "DEBUG_PRIVACY: Window flags include FLAG_SECURE")
+                (if (USE_SECURE_OVERLAY) WindowManager.LayoutParams.FLAG_SECURE else 0)
 
         val extraSize = 500
         val overlayWidth = screenWidth + extraSize * 2
@@ -289,7 +283,7 @@ class PrivacyModeService : Service() {
             overlayHeight,
             windowType,
             windowFlags,
-            PixelFormat.OPAQUE  // 不透明
+            if (USE_SECURE_OVERLAY) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -extraSize
