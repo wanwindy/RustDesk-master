@@ -28,7 +28,7 @@ import androidx.core.app.NotificationCompat
  * Privacy Mode Service - 半透明遮罩 + 亮度控制方案
  * 
  * 针对不同设备优化：
- * - 华为/荣耀设备：使用更高的alpha值(240)确保屏幕足够暗
+ * - 华为/荣耀设备：使用更高的alpha值(238)确保屏幕足够暗
  * - 其他设备：使用标准alpha值(235)
  */
 class PrivacyModeService : Service() {
@@ -294,8 +294,8 @@ class PrivacyModeService : Service() {
         // 需要平衡：Android足够暗 vs PC仍可见
         // 荣耀设备亮度控制无效，只能依赖alpha
         val alphaValue = if (isHuaweiDevice()) {
-            Log.d(TAG, "DEBUG_PRIVACY: Using alpha (240) for Huawei/Honor device")
-            240  // 比其他设备高一点，补偿亮度控制无效
+            Log.d(TAG, "DEBUG_PRIVACY: Using alpha (238) for Huawei/Honor device")
+            238  // 比其他设备高一点，补偿亮度控制无效
         } else {
             Log.d(TAG, "DEBUG_PRIVACY: Using standard alpha (235)")
             235
@@ -328,7 +328,8 @@ class PrivacyModeService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                WindowManager.LayoutParams.FLAG_SECURE
 
         val extraSize = 500
         val overlayWidth = screenWidth + extraSize * 2
