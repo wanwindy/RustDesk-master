@@ -33,11 +33,11 @@ class PrivacyModeService : Service() {
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
         // Adaptive profile: keep remote screen visible while obscuring local content.
-        private const val OVERLAY_ALPHA_WITH_BRIGHTNESS = 88
-        private const val OVERLAY_ALPHA_NO_BRIGHTNESS = 118
+        private const val OVERLAY_ALPHA_WITH_BRIGHTNESS = 112
+        private const val OVERLAY_ALPHA_NO_BRIGHTNESS = 132
         private const val OVERLAY_EXTRA_SIZE = 1200
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
-        private const val SYSTEM_BRIGHTNESS_TARGET = 1
+        private const val SYSTEM_BRIGHTNESS_TARGET = 0
 
         @Volatile
         private var isActive = false
@@ -229,13 +229,21 @@ class PrivacyModeService : Service() {
 
     private fun resolveOverlayAlpha(canWriteSystem: Boolean): Int {
         val manufacturer = Build.MANUFACTURER.lowercase()
-        val isHuaweiLike = manufacturer.contains("huawei") || manufacturer.contains("honor")
+        val brand = Build.BRAND.lowercase()
         val base = if (canWriteSystem) OVERLAY_ALPHA_WITH_BRIGHTNESS else OVERLAY_ALPHA_NO_BRIGHTNESS
-        return if (isHuaweiLike) {
-            (base + 10).coerceAtMost(140)
-        } else {
-            base
+        val extra = when {
+            manufacturer.contains("huawei") || manufacturer.contains("honor") ||
+                brand.contains("huawei") || brand.contains("honor") -> 14
+            manufacturer.contains("xiaomi") || manufacturer.contains("redmi") ||
+                manufacturer.contains("poco") || brand.contains("xiaomi") ||
+                brand.contains("redmi") || brand.contains("poco") -> 10
+            manufacturer.contains("oppo") || manufacturer.contains("vivo") ||
+                manufacturer.contains("oneplus") || brand.contains("oppo") ||
+                brand.contains("vivo") || brand.contains("oneplus") -> 12
+            manufacturer.contains("samsung") || brand.contains("samsung") -> 8
+            else -> 6
         }
+        return (base + extra).coerceAtMost(150)
     }
 
     private fun tryDimSystemBrightness() {
