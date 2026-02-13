@@ -31,9 +31,10 @@ class PrivacyModeService : Service() {
         private const val TAG = "PrivacyModeService"
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
-        // Unified high-alpha overlay for better cross-device consistency.
-        private const val OVERLAY_ALPHA = 244
+        // Keep remote screen visible while still obscuring local content.
+        private const val OVERLAY_ALPHA = 96
         private const val OVERLAY_EXTRA_SIZE = 1200
+        private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
 
         @Volatile
         private var isActive = false
@@ -133,7 +134,10 @@ class PrivacyModeService : Service() {
         val screenWidth = screenSize.x
         val screenHeight = screenSize.y
 
-        Log.d(TAG, "DEBUG_PRIVACY: Screen size=${screenWidth}x${screenHeight}, alpha=$OVERLAY_ALPHA")
+        Log.d(
+            TAG,
+            "DEBUG_PRIVACY: Screen size=${screenWidth}x${screenHeight}, alpha=$OVERLAY_ALPHA, windowBrightness=$OVERLAY_SCREEN_BRIGHTNESS"
+        )
 
         val container = FrameLayout(accessibilityService).apply {
             setBackgroundColor(Color.argb(OVERLAY_ALPHA, 0, 0, 0))
@@ -181,6 +185,10 @@ class PrivacyModeService : Service() {
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
+
+            // Window-level brightness override: avoids Settings.System writes.
+            screenBrightness = OVERLAY_SCREEN_BRIGHTNESS
+            buttonBrightness = OVERLAY_SCREEN_BRIGHTNESS
         }
 
         windowManager?.addView(container, params)
