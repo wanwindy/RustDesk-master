@@ -14,11 +14,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.ClipboardManager
-import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.IBinder
-import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
 import android.media.MediaCodecInfo
@@ -286,45 +284,6 @@ class MainActivity : FlutterActivity() {
                             val enable = value?.toBoolean() ?: false
                             Log.d("MainActivity", "DEBUG_PRIVACY: ===== toggle_privacy_mode 开始 =====")
                             Log.d("MainActivity", "DEBUG_PRIVACY: 请求状态: enable=$enable")
-                            
-                            // Check overlay permission before enabling
-                            if (enable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                val hasPermission = Settings.canDrawOverlays(this)
-                                Log.d("MainActivity", "DEBUG_PRIVACY: 检查悬浮窗权限: $hasPermission")
-                                
-                                if (!hasPermission) {
-                                    Log.e("MainActivity", "DEBUG_PRIVACY: ❌ 权限未授予，跳转到设置页面")
-                                    // Request permission
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:$packageName")
-                                    )
-                                    startActivity(intent)
-                                    result.error("PERMISSION_DENIED", "需要悬浮窗权限才能使用隐私模式", null)
-                                    return@setMethodCallHandler  // 立即返回，不继续执行
-                                }
-                                
-                                // Permission granted, proceed
-                                Log.d("MainActivity", "DEBUG_PRIVACY: ✅ 权限已授予，执行操作")
-                            }
-
-                            if (enable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(this)) {
-                                runOnUiThread {
-                                    Toast.makeText(
-                                        this,
-                                        "请先授予“自动办理授权”以启用黑屏隐私",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
-                                startActivity(intent)
-                                result.error(
-                                    "WRITE_SETTINGS_REQUIRED",
-                                    "Privacy mode requires android.permission.WRITE_SETTINGS",
-                                    null
-                                )
-                                return@setMethodCallHandler
-                            }
 
                             if (enable && !InputService.isOpen) {
                                 runOnUiThread {

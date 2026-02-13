@@ -29,8 +29,6 @@ import android.media.projection.MediaProjectionManager
 import android.os.*
 import android.util.DisplayMetrics
 import android.util.Log
-import android.provider.Settings
-import android.net.Uri
 import android.view.Surface
 import android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
 import android.view.WindowManager
@@ -191,17 +189,6 @@ class MainService : Service() {
             "toggle_privacy_mode" -> {
                 val enable = arg1.toBoolean()
                 Log.d(logTag, "DEBUG_PRIVACY: MainService received toggle_privacy_mode: $enable")
-                
-                // Check permission first
-                if (enable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    if (!Settings.canDrawOverlays(this)) {
-                        Log.d(logTag, "DEBUG_PRIVACY: Permission missing, opening settings")
-                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        startActivity(intent)
-                        return
-                    }
-                }
 
                 try {
                     if (enable) {
