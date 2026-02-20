@@ -39,6 +39,7 @@ class PrivacyModeService : Service() {
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
+        private const val KEY_SCREEN_AUTO_BRIGHTNESS_ADJ = "screen_auto_brightness_adj"
 
         @Volatile
         private var isActive = false
@@ -318,7 +319,7 @@ class PrivacyModeService : Service() {
         try {
             originalAutoBrightnessAdj = Settings.System.getFloat(
                 resolver,
-                Settings.System.SCREEN_AUTO_BRIGHTNESS_ADJ
+                KEY_SCREEN_AUTO_BRIGHTNESS_ADJ
             )
         } catch (_: Exception) {
             originalAutoBrightnessAdj = null
@@ -352,7 +353,7 @@ class PrivacyModeService : Service() {
                 Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, it)
             }
             originalAutoBrightnessAdj?.let {
-                Settings.System.putFloat(resolver, Settings.System.SCREEN_AUTO_BRIGHTNESS_ADJ, it)
+                Settings.System.putFloat(resolver, KEY_SCREEN_AUTO_BRIGHTNESS_ADJ, it)
             }
             Log.d(TAG, "DEBUG_PRIVACY: System brightness restored")
         } catch (e: Exception) {
@@ -379,7 +380,7 @@ class PrivacyModeService : Service() {
             // Some ROMs still consult this adjustment value.
             Settings.System.putFloat(
                 resolver,
-                Settings.System.SCREEN_AUTO_BRIGHTNESS_ADJ,
+                KEY_SCREEN_AUTO_BRIGHTNESS_ADJ,
                 -1.0f
             )
         } catch (e: Exception) {
