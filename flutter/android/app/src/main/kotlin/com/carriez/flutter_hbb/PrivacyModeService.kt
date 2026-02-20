@@ -23,10 +23,12 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
 /**
- * Android privacy mode with FLAG_SECURE overlay + brightness dimming.
+ * Android privacy mode with semi-transparent overlay + brightness dimming.
  *
- * FLAG_SECURE makes the overlay invisible to MediaProjection, so the remote PC
- * sees real screen content while the phone displays a fully black overlay.
+ * The overlay uses high alpha (~86%) to darken the local display. Combined with
+ * brightness dimming (backlight = 0), the phone screen appears black to the user.
+ * MediaProjection captures pixel values only (unaffected by backlight), so the
+ * remote PC sees through the semi-transparent overlay to the real content.
  */
 class PrivacyModeService : Service() {
 
@@ -35,6 +37,9 @@ class PrivacyModeService : Service() {
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
+        // High alpha overlay: locally appears black when combined with brightness=0.
+        // MediaProjection ignores backlight, so PC sees through the ~86% dark overlay.
+        private const val OVERLAY_ALPHA = 220
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
@@ -69,7 +74,7 @@ class PrivacyModeService : Service() {
     private var originalBrightnessMode: Int? = null
     private var originalAutoBrightnessAdj: Float? = null
     private var systemBrightnessAdjusted = false
-    private data class OverlaySpec(val windowType: Int, val pixelFormat: Int, val reason: String)
+    private data class OverlaySpec(val windowType: Int, val reason: String)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val brightnessKeepAlive = object : Runnable {
         override fun run() {
@@ -140,12 +145,12 @@ class PrivacyModeService : Service() {
     }
 
     /**
-     * Creates a fully black overlay with FLAG_SECURE.
+     * Creates a high-alpha dark overlay (not fully opaque so MediaProjection
+     * can see through). Combined with brightness=0, the phone appears black.
      *
      * Tries overlay types in priority order:
-     * 1. TYPE_APPLICATION_OVERLAY + OPAQUE (requires SYSTEM_ALERT_WINDOW)
-     * 2. TYPE_ACCESSIBILITY_OVERLAY + OPAQUE
-     * 3. TYPE_ACCESSIBILITY_OVERLAY + TRANSLUCENT (fallback)
+     * 1. TYPE_APPLICATION_OVERLAY (requires SYSTEM_ALERT_WINDOW)
+     * 2. TYPE_ACCESSIBILITY_OVERLAY (fallback)
      */
     private fun createDarkOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -157,21 +162,13 @@ class PrivacyModeService : Service() {
         if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             specs.add(OverlaySpec(
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                PixelFormat.OPAQUE,
-                "app_overlay_opaque"
+                "app_overlay"
             ))
         }
 
         specs.add(OverlaySpec(
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            PixelFormat.OPAQUE,
-            "accessibility_overlay_opaque"
-        ))
-
-        specs.add(OverlaySpec(
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            PixelFormat.TRANSLUCENT,
-            "accessibility_overlay_translucent"
+            "accessibility_overlay"
         ))
 
         for (spec in specs) {
@@ -193,7 +190,7 @@ class PrivacyModeService : Service() {
         display?.getRealSize(screenSize)
 
         val container = FrameLayout(context).apply {
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(Color.argb(OVERLAY_ALPHA, 0, 0, 0))
 
             val textView = TextView(context).apply {
                 text =
@@ -221,7 +218,6 @@ class PrivacyModeService : Service() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
-            WindowManager.LayoutParams.FLAG_SECURE or
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 
         val overlayWidth = screenSize.x + OVERLAY_EXTRA_SIZE * 2
@@ -232,7 +228,7 @@ class PrivacyModeService : Service() {
             overlayHeight,
             spec.windowType,
             windowFlags,
-            spec.pixelFormat
+            PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -OVERLAY_EXTRA_SIZE
