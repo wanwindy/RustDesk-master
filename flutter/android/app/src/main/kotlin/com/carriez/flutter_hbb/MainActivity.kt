@@ -280,44 +280,36 @@ class MainActivity : FlutterActivity() {
                     val value = argsMap?.get("value") as? String
                     
                     when (name) {
-                        "toggle_privacy_mode" -> {
+                        “toggle_privacy_mode” -> {
                             val enable = value?.toBoolean() ?: false
-                            Log.d("MainActivity", "DEBUG_PRIVACY: ===== toggle_privacy_mode 开始 =====")
-                            Log.d("MainActivity", "DEBUG_PRIVACY: 请求状态: enable=$enable")
 
                             if (enable && !InputService.isOpen) {
                                 runOnUiThread {
                                     Toast.makeText(
                                         this,
-                                        "请先在“材料保密授权”中开启无障碍服务",
+                                        “请先在”材料保密授权”中开启无障碍服务”,
                                         Toast.LENGTH_LONG
                                     ).show()
                                 }
                                 result.error(
-                                    "ACCESSIBILITY_REQUIRED",
-                                    "Privacy mode requires accessibility service",
+                                    “ACCESSIBILITY_REQUIRED”,
+                                    “Privacy mode requires accessibility service”,
                                     null
                                 )
                                 return@setMethodCallHandler
                             }
-                            
-                            // Execute privacy mode toggle
+
                             try {
                                 if (enable) {
-                                    Log.d("MainActivity", "DEBUG_PRIVACY: 调用 PrivacyModeService.startPrivacyMode()")
                                     PrivacyModeService.startPrivacyMode(this)
                                 } else {
-                                    Log.d("MainActivity", "DEBUG_PRIVACY: 调用 PrivacyModeService.stopPrivacyMode()")
                                     PrivacyModeService.stopPrivacyMode(this)
                                 }
-                                Log.d("MainActivity", "DEBUG_PRIVACY: ✅ 操作成功完成")
                                 result.success(true)
                             } catch (e: Exception) {
-                                Log.e("MainActivity", "DEBUG_PRIVACY: ❌ 操作失败: ${e.message}", e)
-                                result.error("SERVICE_ERROR", "黑屏服务启动失败: ${e.message}", null)
+                                Log.e(“MainActivity”, “Privacy mode toggle failed: ${e.message}”, e)
+                                result.error(“SERVICE_ERROR”, “Privacy mode failed: ${e.message}”, null)
                             }
-                            
-                            Log.d("MainActivity", "DEBUG_PRIVACY: ===== toggle_privacy_mode 结束 =====")
                         }
                         else -> {
                             result.error("-1", "Unknown set_by_name operation: $name", null)

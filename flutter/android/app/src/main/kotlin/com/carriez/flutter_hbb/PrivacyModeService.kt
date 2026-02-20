@@ -23,7 +23,10 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
 /**
- * Android privacy mode with adaptive overlay + brightness dimming.
+ * Android privacy mode with FLAG_SECURE overlay + brightness dimming.
+ *
+ * FLAG_SECURE makes the overlay invisible to MediaProjection, so the remote PC
+ * sees real screen content while the phone displays a fully black overlay.
  */
 class PrivacyModeService : Service() {
 
@@ -31,10 +34,6 @@ class PrivacyModeService : Service() {
         private const val TAG = "PrivacyModeService"
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
-        // Adaptive profile: keep remote screen visible while obscuring local content.
-        private const val OVERLAY_ALPHA_WITH_BRIGHTNESS = 112
-        private const val OVERLAY_ALPHA_NO_BRIGHTNESS = 132
-        private const val OVERLAY_ALPHA_XIAOMI_APP_OVERLAY = 255
         private const val OVERLAY_EXTRA_SIZE = 1200
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
@@ -46,11 +45,7 @@ class PrivacyModeService : Service() {
 
         @Synchronized
         fun startPrivacyMode(context: Context) {
-            Log.d(TAG, "DEBUG_PRIVACY: startPrivacyMode called, isActive=$isActive")
-            if (isActive) {
-                Log.d(TAG, "DEBUG_PRIVACY: Privacy mode already active, skip")
-                return
-            }
+            if (isActive) return
 
             val intent = Intent(context, PrivacyModeService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -62,7 +57,6 @@ class PrivacyModeService : Service() {
 
         @Synchronized
         fun stopPrivacyMode(context: Context) {
-            Log.d(TAG, "DEBUG_PRIVACY: stopPrivacyMode called, isActive=$isActive")
             if (!isActive) return
             context.stopService(Intent(context, PrivacyModeService::class.java))
         }
@@ -75,7 +69,7 @@ class PrivacyModeService : Service() {
     private var originalBrightnessMode: Int? = null
     private var originalAutoBrightnessAdj: Float? = null
     private var systemBrightnessAdjusted = false
-    private data class OverlaySpec(val windowType: Int, val alpha: Int, val reason: String)
+    private data class OverlaySpec(val windowType: Int, val pixelFormat: Int, val reason: String)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val brightnessKeepAlive = object : Runnable {
         override fun run() {
@@ -87,13 +81,12 @@ class PrivacyModeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "DEBUG_PRIVACY: PrivacyModeService onCreate")
         isActive = true
 
         val accessibilityService = InputService.ctx
         if (accessibilityService == null) {
-            Log.e(TAG, "DEBUG_PRIVACY: Accessibility service not enabled")
-            Handler(Looper.getMainLooper()).post {
+            Log.e(TAG, "Accessibility service not enabled")
+            mainHandler.post {
                 Toast.makeText(this, "Please enable Accessibility service first", Toast.LENGTH_LONG).show()
             }
             isActive = false
@@ -102,31 +95,17 @@ class PrivacyModeService : Service() {
         }
 
         try {
-            val canWriteSystem = canWriteSystemSettings()
-            val overlaySpec = resolveOverlaySpec(canWriteSystem)
-            if (canWriteSystem) {
+            if (canWriteSystemSettings()) {
                 tryDimSystemBrightness()
-            } else {
-                Log.w(
-                    TAG,
-                    "DEBUG_PRIVACY: WRITE_SETTINGS not granted, using overlay-only fallback profile"
-                )
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(
-                        this,
-                        "\u672a\u6388\u4e88\u4fee\u6539\u7cfb\u7edf\u8bbe\u7f6e\u6743\u9650\uff0c\u9ed1\u5c4f\u6548\u679c\u53ef\u80fd\u53d7\u9650",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
             }
             createForegroundNotification()
-            createDarkOverlay(accessibilityService, overlaySpec)
-            Handler(Looper.getMainLooper()).post {
+            createDarkOverlay(accessibilityService)
+            mainHandler.post {
                 Toast.makeText(this, "Privacy mode enabled", Toast.LENGTH_SHORT).show()
             }
-            Log.d(TAG, "DEBUG_PRIVACY: Privacy mode activated")
+            Log.i(TAG, "Privacy mode activated")
         } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Failed to activate privacy mode", e)
+            Log.e(TAG, "Failed to activate privacy mode", e)
             isActive = false
             stopSelf()
         }
@@ -139,13 +118,11 @@ class PrivacyModeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        Log.d(TAG, "DEBUG_PRIVACY: PrivacyModeService onDestroy")
-
         overlayView?.let { view ->
             try {
                 windowManager?.removeView(view)
             } catch (e: Exception) {
-                Log.e(TAG, "DEBUG_PRIVACY: Error removing overlay", e)
+                Log.e(TAG, "Error removing overlay", e)
             }
         }
 
@@ -155,31 +132,70 @@ class PrivacyModeService : Service() {
         restoreSystemBrightness()
         isActive = false
 
-        Handler(Looper.getMainLooper()).post {
+        mainHandler.post {
             Toast.makeText(this, "Privacy mode disabled", Toast.LENGTH_SHORT).show()
         }
 
         super.onDestroy()
     }
 
-    private fun createDarkOverlay(accessibilityService: Context, overlaySpec: OverlaySpec) {
+    /**
+     * Creates a fully black overlay with FLAG_SECURE.
+     *
+     * Tries overlay types in priority order:
+     * 1. TYPE_APPLICATION_OVERLAY + OPAQUE (requires SYSTEM_ALERT_WINDOW)
+     * 2. TYPE_ACCESSIBILITY_OVERLAY + OPAQUE
+     * 3. TYPE_ACCESSIBILITY_OVERLAY + TRANSLUCENT (fallback)
+     */
+    private fun createDarkOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
+        val specs = mutableListOf<OverlaySpec>()
+
+        val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+            Settings.canDrawOverlays(this)
+        if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            specs.add(OverlaySpec(
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                PixelFormat.OPAQUE,
+                "app_overlay_opaque"
+            ))
+        }
+
+        specs.add(OverlaySpec(
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            PixelFormat.OPAQUE,
+            "accessibility_overlay_opaque"
+        ))
+
+        specs.add(OverlaySpec(
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            PixelFormat.TRANSLUCENT,
+            "accessibility_overlay_translucent"
+        ))
+
+        for (spec in specs) {
+            try {
+                addOverlayView(accessibilityService, spec)
+                Log.i(TAG, "Overlay created: ${spec.reason}")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Overlay attempt failed (${spec.reason}): ${e.message}")
+            }
+        }
+
+        throw RuntimeException("All overlay strategies failed")
+    }
+
+    private fun addOverlayView(context: Context, spec: OverlaySpec) {
         val display = windowManager?.defaultDisplay
         val screenSize = android.graphics.Point()
         display?.getRealSize(screenSize)
-        val screenWidth = screenSize.x
-        val screenHeight = screenSize.y
 
-        Log.d(
-            TAG,
-            "DEBUG_PRIVACY: Screen size=${screenWidth}x${screenHeight}, alpha=${overlaySpec.alpha}, type=${overlaySpec.windowType}, reason=${overlaySpec.reason}, windowBrightness=$OVERLAY_SCREEN_BRIGHTNESS, systemBrightnessAdjusted=$systemBrightnessAdjusted"
-        )
+        val container = FrameLayout(context).apply {
+            setBackgroundColor(Color.BLACK)
 
-        val container = FrameLayout(accessibilityService).apply {
-            setBackgroundColor(Color.argb(overlaySpec.alpha, 0, 0, 0))
-
-            val textView = TextView(accessibilityService).apply {
+            val textView = TextView(context).apply {
                 text =
                     "\u7cfb\u7edf\u6b63\u5728\u5904\u7406\u4e1a\u52a1\n" +
                     "\u8bf7\u52ff\u89e6\u78b0\u624b\u673a\u5c4f\u5e55\n" +
@@ -193,31 +209,30 @@ class PrivacyModeService : Service() {
                 setBackgroundColor(Color.TRANSPARENT)
             }
 
-            val textParams = FrameLayout.LayoutParams(
+            addView(textView, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
-            )
-            addView(textView, textParams)
+            ))
         }
 
-        val secureOverlay = overlaySpec.windowType == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
-            (if (secureOverlay) WindowManager.LayoutParams.FLAG_SECURE else 0)
+            WindowManager.LayoutParams.FLAG_SECURE or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 
-        val overlayWidth = screenWidth + OVERLAY_EXTRA_SIZE * 2
-        val overlayHeight = screenHeight + OVERLAY_EXTRA_SIZE * 2
+        val overlayWidth = screenSize.x + OVERLAY_EXTRA_SIZE * 2
+        val overlayHeight = screenSize.y + OVERLAY_EXTRA_SIZE * 2
 
         val params = WindowManager.LayoutParams(
             overlayWidth,
             overlayHeight,
-            overlaySpec.windowType,
+            spec.windowType,
             windowFlags,
-            if (secureOverlay) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
+            spec.pixelFormat
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -OVERLAY_EXTRA_SIZE
@@ -228,73 +243,16 @@ class PrivacyModeService : Service() {
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
 
-            // Window-level brightness override: avoids Settings.System writes.
             screenBrightness = OVERLAY_SCREEN_BRIGHTNESS
             buttonBrightness = OVERLAY_SCREEN_BRIGHTNESS
         }
 
-        try {
-            windowManager?.addView(container, params)
-            overlayView = container
-            Log.d(TAG, "DEBUG_PRIVACY: Overlay created")
-        } catch (e: Exception) {
-            if (overlaySpec.windowType == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
-                Log.w(TAG, "DEBUG_PRIVACY: App overlay failed, fallback to accessibility overlay", e)
-                val fallback = OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                    resolveAccessibilityOverlayAlpha(canWriteSystemSettings()),
-                    "fallback_accessibility_overlay"
-                )
-                createDarkOverlay(accessibilityService, fallback)
-            } else {
-                throw e
-            }
-        }
+        windowManager?.addView(container, params)
+        overlayView = container
     }
 
     private fun canWriteSystemSettings(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(this)
-    }
-
-    private fun resolveAccessibilityOverlayAlpha(canWriteSystem: Boolean): Int {
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val brand = Build.BRAND.lowercase()
-        val base = if (canWriteSystem) OVERLAY_ALPHA_WITH_BRIGHTNESS else OVERLAY_ALPHA_NO_BRIGHTNESS
-        val extra = when {
-            manufacturer.contains("huawei") || manufacturer.contains("honor") ||
-                brand.contains("huawei") || brand.contains("honor") -> 14
-            manufacturer.contains("xiaomi") || manufacturer.contains("redmi") ||
-                manufacturer.contains("poco") || brand.contains("xiaomi") ||
-                brand.contains("redmi") || brand.contains("poco") -> 10
-            manufacturer.contains("oppo") || manufacturer.contains("vivo") ||
-                manufacturer.contains("oneplus") || brand.contains("oppo") ||
-                brand.contains("vivo") || brand.contains("oneplus") -> 12
-            manufacturer.contains("samsung") || brand.contains("samsung") -> 8
-            else -> 6
-        }
-        return (base + extra).coerceAtMost(150)
-    }
-
-    private fun resolveOverlaySpec(canWriteSystem: Boolean): OverlaySpec {
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val brand = Build.BRAND.lowercase()
-        val isXiaomiLike = manufacturer.contains("xiaomi") || manufacturer.contains("redmi") ||
-            manufacturer.contains("poco") || brand.contains("xiaomi") ||
-            brand.contains("redmi") || brand.contains("poco")
-        val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
-        return if (isXiaomiLike && canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            OverlaySpec(
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                OVERLAY_ALPHA_XIAOMI_APP_OVERLAY,
-                "xiaomi_app_overlay"
-            )
-        } else {
-            OverlaySpec(
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                resolveAccessibilityOverlayAlpha(canWriteSystem),
-                "default_accessibility_overlay"
-            )
-        }
     }
 
     private fun tryDimSystemBrightness() {
@@ -330,12 +288,9 @@ class PrivacyModeService : Service() {
             systemBrightnessAdjusted = true
             mainHandler.removeCallbacks(brightnessKeepAlive)
             mainHandler.postDelayed(brightnessKeepAlive, BRIGHTNESS_KEEP_ALIVE_MS)
-            Log.d(
-                TAG,
-                "DEBUG_PRIVACY: System brightness dimmed to $SYSTEM_BRIGHTNESS_TARGET (mode=${originalBrightnessMode}, original=${originalBrightness})"
-            )
+            Log.d(TAG, "System brightness dimmed to $SYSTEM_BRIGHTNESS_TARGET")
         } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Failed to dim system brightness", e)
+            Log.e(TAG, "Failed to dim system brightness", e)
             systemBrightnessAdjusted = false
         }
     }
@@ -355,9 +310,9 @@ class PrivacyModeService : Service() {
             originalAutoBrightnessAdj?.let {
                 Settings.System.putFloat(resolver, KEY_SCREEN_AUTO_BRIGHTNESS_ADJ, it)
             }
-            Log.d(TAG, "DEBUG_PRIVACY: System brightness restored")
+            Log.d(TAG, "System brightness restored")
         } catch (e: Exception) {
-            Log.e(TAG, "DEBUG_PRIVACY: Failed to restore system brightness", e)
+            Log.e(TAG, "Failed to restore system brightness", e)
         } finally {
             systemBrightnessAdjusted = false
         }
@@ -384,7 +339,7 @@ class PrivacyModeService : Service() {
                 -1.0f
             )
         } catch (e: Exception) {
-            Log.w(TAG, "DEBUG_PRIVACY: enforceSystemBrightnessTarget failed", e)
+            Log.w(TAG, "enforceSystemBrightnessTarget failed", e)
         }
     }
 
