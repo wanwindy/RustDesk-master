@@ -280,20 +280,20 @@ class MainActivity : FlutterActivity() {
                     val value = argsMap?.get("value") as? String
                     
                     when (name) {
-                        “toggle_privacy_mode” -> {
+                        "toggle_privacy_mode" -> {
                             val enable = value?.toBoolean() ?: false
 
                             if (enable && !InputService.isOpen) {
                                 runOnUiThread {
                                     Toast.makeText(
                                         this,
-                                        “请先在”材料保密授权”中开启无障碍服务”,
+                                        "Please enable Accessibility service first",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 }
                                 result.error(
-                                    “ACCESSIBILITY_REQUIRED”,
-                                    “Privacy mode requires accessibility service”,
+                                    "ACCESSIBILITY_REQUIRED",
+                                    "Privacy mode requires accessibility service",
                                     null
                                 )
                                 return@setMethodCallHandler
@@ -307,8 +307,8 @@ class MainActivity : FlutterActivity() {
                                 }
                                 result.success(true)
                             } catch (e: Exception) {
-                                Log.e(“MainActivity”, “Privacy mode toggle failed: ${e.message}”, e)
-                                result.error(“SERVICE_ERROR”, “Privacy mode failed: ${e.message}”, null)
+                                Log.e("MainActivity", "Privacy mode toggle failed: ${e.message}", e)
+                                result.error("SERVICE_ERROR", "Privacy mode failed: ${e.message}", null)
                             }
                         }
                         else -> {
