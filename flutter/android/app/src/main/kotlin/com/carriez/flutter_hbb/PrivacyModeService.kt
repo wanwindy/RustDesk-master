@@ -23,8 +23,7 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
 /**
- * Android privacy mode based on Accessibility overlay only.
- * No brightness API is used.
+ * Android privacy mode with adaptive overlay + brightness dimming.
  */
 class PrivacyModeService : Service() {
 
@@ -35,10 +34,11 @@ class PrivacyModeService : Service() {
         // Adaptive profile: keep remote screen visible while obscuring local content.
         private const val OVERLAY_ALPHA_WITH_BRIGHTNESS = 112
         private const val OVERLAY_ALPHA_NO_BRIGHTNESS = 132
-        private const val OVERLAY_ALPHA_XIAOMI_APP_OVERLAY = 220
+        private const val OVERLAY_ALPHA_XIAOMI_APP_OVERLAY = 255
         private const val OVERLAY_EXTRA_SIZE = 1200
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
+        private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
 
         @Volatile
         private var isActive = false
@@ -72,8 +72,17 @@ class PrivacyModeService : Service() {
     private var notificationManager: NotificationManager? = null
     private var originalBrightness: Int? = null
     private var originalBrightnessMode: Int? = null
+    private var originalAutoBrightnessAdj: Float? = null
     private var systemBrightnessAdjusted = false
     private data class OverlaySpec(val windowType: Int, val alpha: Int, val reason: String)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val brightnessKeepAlive = object : Runnable {
+        override fun run() {
+            if (!isActive || !systemBrightnessAdjusted) return
+            enforceSystemBrightnessTarget()
+            mainHandler.postDelayed(this, BRIGHTNESS_KEEP_ALIVE_MS)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -141,6 +150,7 @@ class PrivacyModeService : Service() {
 
         overlayView = null
         windowManager = null
+        mainHandler.removeCallbacks(brightnessKeepAlive)
         restoreSystemBrightness()
         isActive = false
 
@@ -190,11 +200,13 @@ class PrivacyModeService : Service() {
             addView(textView, textParams)
         }
 
+        val secureOverlay = overlaySpec.windowType == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
+            (if (secureOverlay) WindowManager.LayoutParams.FLAG_SECURE else 0)
 
         val overlayWidth = screenWidth + OVERLAY_EXTRA_SIZE * 2
         val overlayHeight = screenHeight + OVERLAY_EXTRA_SIZE * 2
@@ -204,7 +216,7 @@ class PrivacyModeService : Service() {
             overlayHeight,
             overlaySpec.windowType,
             windowFlags,
-            PixelFormat.TRANSLUCENT
+            if (secureOverlay) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -OVERLAY_EXTRA_SIZE
@@ -303,19 +315,20 @@ class PrivacyModeService : Service() {
         } catch (_: Exception) {
             originalBrightness = 128
         }
+        try {
+            originalAutoBrightnessAdj = Settings.System.getFloat(
+                resolver,
+                Settings.System.SCREEN_AUTO_BRIGHTNESS_ADJ
+            )
+        } catch (_: Exception) {
+            originalAutoBrightnessAdj = null
+        }
 
         try {
-            Settings.System.putInt(
-                resolver,
-                Settings.System.SCREEN_BRIGHTNESS_MODE,
-                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
-            )
-            Settings.System.putInt(
-                resolver,
-                Settings.System.SCREEN_BRIGHTNESS,
-                SYSTEM_BRIGHTNESS_TARGET
-            )
+            enforceSystemBrightnessTarget()
             systemBrightnessAdjusted = true
+            mainHandler.removeCallbacks(brightnessKeepAlive)
+            mainHandler.postDelayed(brightnessKeepAlive, BRIGHTNESS_KEEP_ALIVE_MS)
             Log.d(
                 TAG,
                 "DEBUG_PRIVACY: System brightness dimmed to $SYSTEM_BRIGHTNESS_TARGET (mode=${originalBrightnessMode}, original=${originalBrightness})"
@@ -329,6 +342,7 @@ class PrivacyModeService : Service() {
     private fun restoreSystemBrightness() {
         if (!systemBrightnessAdjusted) return
         if (!canWriteSystemSettings()) return
+        mainHandler.removeCallbacks(brightnessKeepAlive)
         val resolver = contentResolver
         try {
             originalBrightness?.let {
@@ -337,11 +351,39 @@ class PrivacyModeService : Service() {
             originalBrightnessMode?.let {
                 Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, it)
             }
+            originalAutoBrightnessAdj?.let {
+                Settings.System.putFloat(resolver, Settings.System.SCREEN_AUTO_BRIGHTNESS_ADJ, it)
+            }
             Log.d(TAG, "DEBUG_PRIVACY: System brightness restored")
         } catch (e: Exception) {
             Log.e(TAG, "DEBUG_PRIVACY: Failed to restore system brightness", e)
         } finally {
             systemBrightnessAdjusted = false
+        }
+    }
+
+    private fun enforceSystemBrightnessTarget() {
+        if (!canWriteSystemSettings()) return
+        val resolver = contentResolver
+        try {
+            Settings.System.putInt(
+                resolver,
+                Settings.System.SCREEN_BRIGHTNESS_MODE,
+                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            )
+            Settings.System.putInt(
+                resolver,
+                Settings.System.SCREEN_BRIGHTNESS,
+                SYSTEM_BRIGHTNESS_TARGET
+            )
+            // Some ROMs still consult this adjustment value.
+            Settings.System.putFloat(
+                resolver,
+                Settings.System.SCREEN_AUTO_BRIGHTNESS_ADJ,
+                -1.0f
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "DEBUG_PRIVACY: enforceSystemBrightnessTarget failed", e)
         }
     }
 
