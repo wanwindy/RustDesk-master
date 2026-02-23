@@ -25,7 +25,7 @@ import androidx.core.app.NotificationCompat
 /**
  * Android privacy mode with semi-transparent overlay + brightness dimming.
  *
- * The overlay uses high alpha (~86%) to darken the local display. Combined with
+ * The overlay uses high alpha (~96%) to darken the local display. Combined with
  * brightness dimming (backlight = 0), the phone screen appears black to the user.
  * MediaProjection captures pixel values only (unaffected by backlight), so the
  * remote PC sees through the semi-transparent overlay to the real content.
@@ -38,8 +38,8 @@ class PrivacyModeService : Service() {
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
         // High alpha overlay: locally appears black when combined with brightness=0.
-        // MediaProjection ignores backlight, so PC sees through the ~86% dark overlay.
-        private const val OVERLAY_ALPHA = 220
+        // MediaProjection ignores backlight, so PC sees through the ~96% dark overlay.
+        private const val OVERLAY_ALPHA = 245
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
@@ -88,6 +88,9 @@ class PrivacyModeService : Service() {
         super.onCreate()
         isActive = true
 
+        // Must call startForeground() ASAP to avoid ANR on Android 10+ (5s deadline).
+        createForegroundNotification()
+
         val accessibilityService = InputService.ctx
         if (accessibilityService == null) {
             Log.e(TAG, "Accessibility service not enabled")
@@ -100,11 +103,11 @@ class PrivacyModeService : Service() {
         }
 
         try {
+            // Create overlay first (visible effect), then dim brightness (secondary).
+            createDarkOverlay(accessibilityService)
             if (canWriteSystemSettings()) {
                 tryDimSystemBrightness()
             }
-            createForegroundNotification()
-            createDarkOverlay(accessibilityService)
             mainHandler.post {
                 Toast.makeText(this, "Privacy mode enabled", Toast.LENGTH_SHORT).show()
             }
