@@ -25,7 +25,7 @@ import androidx.core.app.NotificationCompat
 /**
  * Android privacy mode with semi-transparent overlay + brightness dimming.
  *
- * The overlay uses high alpha (~96%) to darken the local display. Combined with
+ * The overlay uses moderate alpha (~78%) to darken the local display. Combined with
  * brightness dimming (backlight = 0), the phone screen appears black to the user.
  * MediaProjection captures pixel values only (unaffected by backlight), so the
  * remote PC sees through the semi-transparent overlay to the real content.
@@ -37,9 +37,11 @@ class PrivacyModeService : Service() {
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
-        // High alpha overlay: locally appears black when combined with brightness=0.
-        // MediaProjection ignores backlight, so PC sees through the ~96% dark overlay.
-        private const val OVERLAY_ALPHA = 245
+        // Overlay alpha: balance between local darkness and PC visibility.
+        // PC sees (255-alpha)/255 of original brightness through MediaProjection.
+        // Local display combines overlay alpha + backlight=0 for near-black effect.
+        private const val OVERLAY_ALPHA_DEFAULT = 200  // ~22% PC brightness
+        private const val OVERLAY_ALPHA_HUAWEI = 150   // ~41% PC brightness (EMUI captures darker)
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
@@ -187,13 +189,21 @@ class PrivacyModeService : Service() {
         throw RuntimeException("All overlay strategies failed")
     }
 
+    private fun resolveOverlayAlpha(): Int {
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        val brand = Build.BRAND.lowercase()
+        val isHuawei = manufacturer.contains("huawei") || brand.contains("huawei")
+        return if (isHuawei) OVERLAY_ALPHA_HUAWEI else OVERLAY_ALPHA_DEFAULT
+    }
+
     private fun addOverlayView(context: Context, spec: OverlaySpec) {
         val display = windowManager?.defaultDisplay
         val screenSize = android.graphics.Point()
         display?.getRealSize(screenSize)
 
+        val alpha = resolveOverlayAlpha()
         val container = FrameLayout(context).apply {
-            setBackgroundColor(Color.argb(OVERLAY_ALPHA, 0, 0, 0))
+            setBackgroundColor(Color.argb(alpha, 0, 0, 0))
 
             val textView = TextView(context).apply {
                 text =
