@@ -43,7 +43,7 @@ class PrivacyModeService : Service() {
         private const val OVERLAY_ALPHA_DEFAULT = 245  // ~4% PC brightness
         private const val OVERLAY_ALPHA_HUAWEI = 200   // ~22% PC brightness (EMUI captures darker)
         private const val OVERLAY_ALPHA_HONOR = 240    // ~6% PC brightness
-        private const val OVERLAY_SCREEN_BRIGHTNESS = 0.01f
+        private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
         private const val KEY_SCREEN_AUTO_BRIGHTNESS_ADJ = "screen_auto_brightness_adj"
