@@ -41,7 +41,11 @@ class PrivacyModeService : Service() {
         // PC sees (255-alpha)/255 of original brightness through MediaProjection.
         // Local display combines overlay alpha + backlight=0 for near-black effect.
         private const val OVERLAY_ALPHA_DEFAULT = 245  // ~4% PC brightness
-        private const val OVERLAY_ALPHA_HUAWEI = 150   // ~41% PC brightness (EMUI captures darker)
+        private const val OVERLAY_ALPHA_HUAWEI = 200   // ~22% PC brightness (EMUI captures darker)
+        // Honor/MagicOS caps accessibility overlay alpha; use 2 stacked layers to compensate.
+        private const val OVERLAY_ALPHA_HONOR = 245
+        private const val OVERLAY_LAYERS_DEFAULT = 1
+        private const val OVERLAY_LAYERS_HONOR = 2
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
@@ -69,7 +73,7 @@ class PrivacyModeService : Service() {
         }
     }
 
-    private var overlayView: View? = null
+    private val overlayViews = mutableListOf<View>()
     private var windowManager: WindowManager? = null
     private var notificationManager: NotificationManager? = null
     private var originalBrightness: Int? = null
@@ -128,15 +132,14 @@ class PrivacyModeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        overlayView?.let { view ->
+        for (view in overlayViews) {
             try {
                 windowManager?.removeView(view)
             } catch (e: Exception) {
                 Log.e(TAG, "Error removing overlay", e)
             }
         }
-
-        overlayView = null
+        overlayViews.clear()
         windowManager = null
         mainHandler.removeCallbacks(brightnessKeepAlive)
         restoreSystemBrightness()
@@ -176,12 +179,20 @@ class PrivacyModeService : Service() {
             "accessibility_overlay"
         ))
 
+        val layers = resolveOverlayLayers()
         for (spec in specs) {
             try {
-                addOverlayView(accessibilityService, spec)
-                Log.i(TAG, "Overlay created: ${spec.reason}")
+                for (i in 0 until layers) {
+                    addOverlayView(accessibilityService, spec, showText = (i == 0))
+                }
+                Log.i(TAG, "Overlay created: ${spec.reason}, layers=$layers")
                 return
             } catch (e: Exception) {
+                // Remove any partially added views from this attempt
+                for (view in overlayViews) {
+                    try { windowManager?.removeView(view) } catch (_: Exception) {}
+                }
+                overlayViews.clear()
                 Log.w(TAG, "Overlay attempt failed (${spec.reason}): ${e.message}")
             }
         }
@@ -189,14 +200,31 @@ class PrivacyModeService : Service() {
         throw RuntimeException("All overlay strategies failed")
     }
 
-    private fun resolveOverlayAlpha(): Int {
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val brand = Build.BRAND.lowercase()
-        val isHuawei = manufacturer.contains("huawei") || brand.contains("huawei")
-        return if (isHuawei) OVERLAY_ALPHA_HUAWEI else OVERLAY_ALPHA_DEFAULT
+    private fun isHuaweiBrand(): Boolean {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        return m.contains("huawei") || b.contains("huawei")
     }
 
-    private fun addOverlayView(context: Context, spec: OverlaySpec) {
+    private fun isHonorBrand(): Boolean {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        return m.contains("honor") || b.contains("honor")
+    }
+
+    private fun resolveOverlayAlpha(): Int {
+        return when {
+            isHuaweiBrand() -> OVERLAY_ALPHA_HUAWEI
+            isHonorBrand() -> OVERLAY_ALPHA_HONOR
+            else -> OVERLAY_ALPHA_DEFAULT
+        }
+    }
+
+    private fun resolveOverlayLayers(): Int {
+        return if (isHonorBrand()) OVERLAY_LAYERS_HONOR else OVERLAY_LAYERS_DEFAULT
+    }
+
+    private fun addOverlayView(context: Context, spec: OverlaySpec, showText: Boolean = true) {
         val display = windowManager?.defaultDisplay
         val screenSize = android.graphics.Point()
         display?.getRealSize(screenSize)
@@ -205,25 +233,27 @@ class PrivacyModeService : Service() {
         val container = FrameLayout(context).apply {
             setBackgroundColor(Color.argb(alpha, 0, 0, 0))
 
-            val textView = TextView(context).apply {
-                text =
-                    "\u7cfb\u7edf\u6b63\u5728\u5904\u7406\u4e1a\u52a1\n" +
-                    "\u8bf7\u52ff\u89e6\u78b0\u624b\u673a\u5c4f\u5e55\n" +
-                    "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
-                setTextColor(Color.WHITE)
-                textSize = 34f
-                gravity = Gravity.CENTER
-                setTypeface(Typeface.DEFAULT_BOLD)
-                setShadowLayer(14f, 3f, 3f, Color.BLACK)
-                setPadding(48, 48, 48, 48)
-                setBackgroundColor(Color.TRANSPARENT)
-            }
+            if (showText) {
+                val textView = TextView(context).apply {
+                    text =
+                        "\u7cfb\u7edf\u6b63\u5728\u5904\u7406\u4e1a\u52a1\n" +
+                        "\u8bf7\u52ff\u89e6\u78b0\u624b\u673a\u5c4f\u5e55\n" +
+                        "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
+                    setTextColor(Color.WHITE)
+                    textSize = 34f
+                    gravity = Gravity.CENTER
+                    setTypeface(Typeface.DEFAULT_BOLD)
+                    setShadowLayer(14f, 3f, 3f, Color.BLACK)
+                    setPadding(48, 48, 48, 48)
+                    setBackgroundColor(Color.TRANSPARENT)
+                }
 
-            addView(textView, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            ))
+                addView(textView, FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                ))
+            }
         }
 
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -257,7 +287,7 @@ class PrivacyModeService : Service() {
         }
 
         windowManager?.addView(container, params)
-        overlayView = container
+        overlayViews.add(container)
     }
 
     private fun canWriteSystemSettings(): Boolean {
