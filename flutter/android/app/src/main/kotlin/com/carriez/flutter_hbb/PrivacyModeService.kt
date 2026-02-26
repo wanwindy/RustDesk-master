@@ -41,8 +41,8 @@ class PrivacyModeService : Service() {
         // PC sees (255-alpha)/255 of original brightness through MediaProjection.
         // Local display combines overlay alpha + backlight=0 for near-black effect.
         private const val OVERLAY_ALPHA_DEFAULT = 245  // ~4% PC brightness
-        private const val OVERLAY_ALPHA_HUAWEI = 252   // ~1% PC brightness (EMUI ignores screenBrightness)
-        private const val OVERLAY_ALPHA_HONOR = 253    // ~1% PC brightness (MagicOS ignores screenBrightness)
+        private const val OVERLAY_ALPHA_HUAWEI = 225   // ~12% PC brightness
+        private const val OVERLAY_ALPHA_HONOR = 245    // ~4% PC brightness
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
