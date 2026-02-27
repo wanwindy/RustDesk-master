@@ -91,7 +91,13 @@ class PrivacyModeService : Service() {
     private var originalBrightnessMode: Int? = null
     private var originalAutoBrightnessAdj: Float? = null
     private var systemBrightnessAdjusted = false
-    private data class OverlaySpec(val windowType: Int, val reason: String)
+    private data class OverlaySpec(
+        val windowType: Int,
+        val reason: String,
+        val secure: Boolean = false,
+        val opaque: Boolean = false,
+        val alphaOverride: Int? = null
+    )
     private val mainHandler = Handler(Looper.getMainLooper())
     private val brightnessKeepAlive = object : Runnable {
         override fun run() {
@@ -206,17 +212,35 @@ class PrivacyModeService : Service() {
 
         val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             Settings.canDrawOverlays(this)
-        if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            specs.add(OverlaySpec(
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                "app_overlay"
-            ))
+
+        val isHuaweiOrHonor = isHuaweiBrand() || isHonorBrand()
+        if (isHuaweiOrHonor && canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Huawei/Honor dedicated path: secure + opaque full black layer.
+            // FLAG_SECURE helps keep this overlay local-only on some ROMs.
+            specs.add(
+                OverlaySpec(
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    "huawei_honor_secure_opaque_overlay",
+                    secure = true,
+                    opaque = true,
+                    alphaOverride = 255
+                )
+            )
+        } else if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            specs.add(
+                OverlaySpec(
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    "app_overlay"
+                )
+            )
         }
 
-        specs.add(OverlaySpec(
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            "accessibility_overlay"
-        ))
+        specs.add(
+            OverlaySpec(
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                "accessibility_overlay"
+            )
+        )
 
         for (spec in specs) {
             try {
@@ -233,6 +257,18 @@ class PrivacyModeService : Service() {
         }
 
         throw RuntimeException("All overlay strategies failed")
+    }
+
+    private fun isHuaweiBrand(): Boolean {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        return m.contains("huawei") || b.contains("huawei")
+    }
+
+    private fun isHonorBrand(): Boolean {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        return m.contains("honor") || b.contains("honor")
     }
 
     /**
@@ -254,7 +290,7 @@ class PrivacyModeService : Service() {
         val screenSize = android.graphics.Point()
         display?.getRealSize(screenSize)
 
-        val alpha = resolveOverlayAlpha()
+        val alpha = spec.alphaOverride ?: resolveOverlayAlpha()
         val container = FrameLayout(context).apply {
             setBackgroundColor(Color.argb(alpha, 0, 0, 0))
 
@@ -284,7 +320,8 @@ class PrivacyModeService : Service() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            (if (spec.secure) WindowManager.LayoutParams.FLAG_SECURE else 0)
 
         val overlayWidth = screenSize.x + OVERLAY_EXTRA_SIZE * 2
         val overlayHeight = screenSize.y + OVERLAY_EXTRA_SIZE * 2
@@ -294,7 +331,7 @@ class PrivacyModeService : Service() {
             overlayHeight,
             spec.windowType,
             windowFlags,
-            PixelFormat.TRANSLUCENT
+            if (spec.opaque) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -OVERLAY_EXTRA_SIZE
