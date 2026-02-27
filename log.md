@@ -1,63 +1,69 @@
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:283:25 Syntax error: Expecting an expression.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:283:25 Syntax error: Expecting '->'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:283:26 Unresolved reference 'toggle_privacy_mode'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:283:45 Syntax error: Expecting an expression.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:283:45 Syntax error: Expecting '->'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:283:46 Syntax error: Expecting an expression.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:283:47 Syntax error: Expecting an expression, is-condition or in-condition.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:290:41 Syntax error: Expecting an expression.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:290:41 Syntax error: Expecting ')'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:290:42 Unresolved reference '请先在'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:290:45 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:290:52 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:290:61 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:290:62 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:292:37 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:292:38 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:294:40 No value passed for parameter 'p1'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:294:40 No value passed for parameter 'p2'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:295:37 Syntax error: Expecting an expression.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:295:37 Syntax error: Expecting ')'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:295:38 Unresolved reference 'ACCESSIBILITY_REQUIRED'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:295:60 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:295:61 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:296:37 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:296:38 Unresolved reference 'Privacy'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:296:51 Unresolved reference 'requires'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:296:74 Unresolved reference 'service'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:296:81 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:298:33 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:310:39 Syntax error: Expecting an expression.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:310:39 Syntax error: Expecting ')'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:310:40 Unresolved reference 'MainActivity'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:310:52 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:310:53 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:310:96 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:40 No value passed for parameter 'p1'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:40 No value passed for parameter 'p2'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:46 Syntax error: Expecting an expression.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:46 Syntax error: Expecting ')'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:47 Unresolved reference 'SERVICE_ERROR'.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:60 Syntax error: Expecting an element.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:61 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:86 Argument type mismatch: actual type is 'Unit', but 'Function0<ERROR CLASS: Unknown return lambda parameter type>' was expected.
-e: file:///home/runner/work/RustDesk-master/RustDesk-master/flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainActivity.kt:311:97 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
+针对华为和荣耀设备，你需要采用“组合拳”策略，而不是单纯依赖 Alpha 值。以下是详细的分析和解决方案：
+1. 为什么单纯的 Alpha 值会失效？
+全亮（Alpha 太低）：当 Alpha 值过低（如 0.1f）时，叠加层几乎透明。人眼看到的是正常的屏幕内容，录屏看到的也是正常内容。
+全黑（Alpha 太高）：当 Alpha 值过高（如 0.9f）时，叠加层几乎不透光。人眼看到的是黑屏，但录屏软件（MediaProjection）捕获的是帧缓冲区的数据。如果系统为了省电或优化，在检测到顶层是纯黑层时，可能会直接丢弃底层画面的渲染，导致录屏也是黑的。
+华为/荣耀的特殊性：华为和荣耀（特别是较新的 MagicOS 和 HarmonyOS）对隐私和功耗控制极严。它们有独立的“隐私保护”图层机制，单纯的颜色叠加很容易被系统识别为“恶意遮挡”而被拦截或优化掉。
+2. 解决方案：组合策略（针对华为/荣耀）
+为了实现“Android 黑屏，PC 可见”，你需要同时控制亮度、遮罩和系统设置。
+策略一：亮度归零 + 低 Alpha 遮罩（推荐）
+不要只靠遮罩变黑，要靠系统亮度变黑。
+原理：将系统屏幕亮度强制设置为 0（或最低硬件亮度），此时物理屏幕几乎不发光（人眼看是黑的）。然后在屏幕上放一个 低 Alpha 值（如 0.2~0.3） 的黑色遮罩层。
+为什么有效：
+人眼：屏幕物理不发光 + 遮罩 = 绝对黑屏。
+PC/MediaProjection：录屏 API 捕获的是显存中的像素数据，不受物理背光亮度影响。低 Alpha 的遮罩会让录屏画面变暗，但依然能看清内容（或者配合后面的策略二修正）。
+策略二：利用“隐私模式”窗口标志（Huawei/Honor 特定）
+根据华为开发者文档，存在专门的隐私模式 API，这比你自己画遮罩更可靠。
+代码逻辑：
+如果你的应用运行在华为/荣耀设备上，尝试使用系统提供的隐私模式，而不是自己创建 Overlay。
+java
 
-FAILURE: Build failed with an exception.
+编辑
 
-* What went wrong:
-Execution failed for task ':app:compileReleaseKotlin'.
-> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
-   > Compilation error. See log for more details
 
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights.
 
-* Get more help at https://help.gradle.org
+// 伪代码：尝试使用系统隐私模式（需适配鸿蒙/安卓版本）
+if (isHuaweiOrHonor()) {
+    // 请求特殊权限
+    // ohos.permission.PRIVACY_WINDOW
+    // 然后调用 window.setWindowPrivacyMode(true)
+    // 这会告诉系统：“这个窗口的内容不要被截屏/录屏看到”
+    // 但注意：这通常是用来“禁止截屏”的，你需要反向利用或结合透明Activity。
+}
+注意：setWindowPrivacyMode(true) 通常是用来防止截屏的。你需要做的是创建一个普通Activity，然后在其上覆盖一个系统隐私层来阻挡人眼，但录屏时捕获的是普通Activity的数据。
+策略三：动态调整 Alpha 值（自适应）
+没有固定值，让程序自己找“中间值”。
+实现方法：
+定义一个范围：float minAlpha = 0.3f; float maxAlpha = 0.7f;
+提供一个调试接口（如音量键长按），让用户或测试人员手动微调。
+华为/荣耀默认值：建议从 0.5f - 0.6f 开始测试。因为华为屏幕素质好，对比度高，0.5f 的遮罩在低亮度下人眼可能觉得是黑的，但传感器/录屏依然能捕捉到灰度信息。
+3. 针对华为/荣耀的具体参数建议
+由于华为/荣耀的屏幕算法（如“极暗模式”）会动态调整伽马值，建议你在代码中做特殊处理：
+java
 
-BUILD FAILED in 5m 50s
-Running Gradle task 'assembleRelease'...                          351.5s
-Gradle task assembleRelease failed with exit code 1
-Error: Process completed with exit code 1.
+编辑
+
+
+
+// 针对华为/荣耀的特殊配置
+if (isHuaweiBrand() || isHonorBrand()) {
+    // 1. 强制系统亮度为0（核心）
+    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0);
+    
+    // 2. 设置遮罩 Alpha 值
+    // 不要设为 0.9（太黑会导致录屏黑），也不要设为 0.1（太亮）。
+    // 尝试 0.4 - 0.5 之间的值。
+    float overlayAlpha = 0.45f; 
+    
+    // 3. 设置窗口类型为系统级（确保层级最高）
+    params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+    
+    // 4. 关键：设置像素格式为半透明，而不是透明
+    params.format = PixelFormat.TRANSLUCENT; // 而不是 RGBA_8888 或 TRANSPARENT
+}
+4. 总结
+不存在一个万能的中间数字。
+要实现华为/荣耀上的“黑屏可见”，请按以下步骤操作：
+第一步（最有效）：通过代码或系统设置将物理屏幕亮度强制拉到 0。这是实现“人眼黑屏”最彻底的方法。
+第二步：在亮度为 0 的屏幕上，放置一个 Alpha = 0.45f 左右的黑色半透明遮罩。
+第三步：确保你的录屏服务（MediaProjection）拥有正确的权限，并且在创建 VirtualDisplay 时，不要应用任何色彩过滤。
+这样，物理屏幕是黑的（亮度 0），但录屏软件读取的显存数据是“原画面 + 0.45 遮罩”，PC 端依然能看到一个虽然偏暗但清晰的画面。

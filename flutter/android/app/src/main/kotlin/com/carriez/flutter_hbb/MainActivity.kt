@@ -14,9 +14,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.ClipboardManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
 import android.media.MediaCodecInfo
@@ -297,6 +299,35 @@ class MainActivity : FlutterActivity() {
                                     null
                                 )
                                 return@setMethodCallHandler
+                            }
+
+                            // Huawei/Honor: check WRITE_SETTINGS before starting
+                            if (enable && PrivacyModeService.isHuaweiOrHonor()) {
+                                val canWrite = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                                    Settings.System.canWrite(this)
+                                if (!canWrite) {
+                                    runOnUiThread {
+                                        Toast.makeText(
+                                            this,
+                                            "\u8bf7\u5148\u6388\u6743\u201c\u4fee\u6539\u7cfb\u7edf\u8bbe\u7f6e\u201d\u6743\u9650",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                    try {
+                                        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                                            data = Uri.parse("package:$packageName")
+                                        }
+                                        startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Log.e("MainActivity", "Failed to open WRITE_SETTINGS", e)
+                                    }
+                                    result.error(
+                                        "WRITE_SETTINGS_REQUIRED",
+                                        "Privacy mode on this device requires WRITE_SETTINGS permission",
+                                        null
+                                    )
+                                    return@setMethodCallHandler
+                                }
                             }
 
                             try {

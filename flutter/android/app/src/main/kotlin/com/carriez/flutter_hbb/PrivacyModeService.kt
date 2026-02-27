@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -23,12 +24,13 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
 /**
- * Android privacy mode with semi-transparent overlay + brightness dimming.
+ * Android privacy mode: overlay + brightness dimming.
  *
- * The overlay uses moderate alpha (~78%) to darken the local display. Combined with
- * brightness dimming (backlight = 0), the phone screen appears black to the user.
- * MediaProjection captures pixel values only (unaffected by backlight), so the
- * remote PC sees through the semi-transparent overlay to the real content.
+ * Strategy differs by device brand:
+ * - Huawei/Honor: screenBrightness window param is ignored by ROM, so we rely on
+ *   Settings.System.SCREEN_BRIGHTNESS=0 (requires WRITE_SETTINGS) + LOW alpha overlay.
+ *   Physical backlight off = phone black; MediaProjection reads pixel data = PC visible.
+ * - Other brands: HIGH alpha overlay + screenBrightness=0.0f window param.
  */
 class PrivacyModeService : Service() {
 
@@ -37,12 +39,17 @@ class PrivacyModeService : Service() {
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
-        // Overlay alpha: balance between local darkness and PC visibility.
-        // PC sees (255-alpha)/255 of original brightness through MediaProjection.
-        // Local display combines overlay alpha + backlight=0 for near-black effect.
+
+        // Default: high alpha, rely on window screenBrightness=0 for full darkness
         private const val OVERLAY_ALPHA_DEFAULT = 245  // ~4% PC brightness
-        private const val OVERLAY_ALPHA_HUAWEI = 223   // ~12% PC brightness
-        private const val OVERLAY_ALPHA_HONOR = 243    // ~4% PC brightness
+
+        // Huawei/Honor: low alpha, rely on system brightness=0 for physical backlight off
+        // PC sees ~55% brightness through MediaProjection (clearly visible)
+        private const val OVERLAY_ALPHA_BRIGHTNESS_CONTROLLED = 115
+
+        // Fallback for Huawei/Honor when WRITE_SETTINGS not granted
+        private const val OVERLAY_ALPHA_FALLBACK = 245
+
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
@@ -67,6 +74,13 @@ class PrivacyModeService : Service() {
         fun stopPrivacyMode(context: Context) {
             if (!isActive) return
             context.stopService(Intent(context, PrivacyModeService::class.java))
+        }
+
+        fun isHuaweiOrHonor(): Boolean {
+            val m = Build.MANUFACTURER.lowercase()
+            val b = Build.BRAND.lowercase()
+            return m.contains("huawei") || b.contains("huawei") ||
+                   m.contains("honor") || b.contains("honor")
         }
     }
 
@@ -105,16 +119,44 @@ class PrivacyModeService : Service() {
             return
         }
 
+        // Huawei/Honor: WRITE_SETTINGS is critical for brightness control.
+        // Without it, overlay alpha alone can't achieve full black screen.
+        val needsBrightnessControl = isHuaweiOrHonor()
+        val hasBrightnessControl = canWriteSystemSettings()
+
+        if (needsBrightnessControl && !hasBrightnessControl) {
+            Log.w(TAG, "Huawei/Honor device without WRITE_SETTINGS, requesting permission")
+            mainHandler.post {
+                Toast.makeText(
+                    this,
+                    "\u8bf7\u6388\u6743\u201c\u4fee\u6539\u7cfb\u7edf\u8bbe\u7f6e\u201d\u6743\u9650\u4ee5\u542f\u7528\u5b8c\u6574\u9690\u79c1\u6a21\u5f0f",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open WRITE_SETTINGS page", e)
+            }
+            // Don't start privacy mode without brightness control on Huawei/Honor
+            isActive = false
+            stopSelf()
+            return
+        }
+
         try {
-            // Create overlay first (visible effect), then dim brightness (secondary).
             createDarkOverlay(accessibilityService)
-            if (canWriteSystemSettings()) {
+            if (hasBrightnessControl) {
                 tryDimSystemBrightness()
             }
             mainHandler.post {
                 Toast.makeText(this, "Privacy mode enabled", Toast.LENGTH_SHORT).show()
             }
-            Log.i(TAG, "Privacy mode activated")
+            Log.i(TAG, "Privacy mode activated (brightness_controlled=$hasBrightnessControl)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to activate privacy mode", e)
             isActive = false
@@ -193,23 +235,17 @@ class PrivacyModeService : Service() {
         throw RuntimeException("All overlay strategies failed")
     }
 
-    private fun isHuaweiBrand(): Boolean {
-        val m = Build.MANUFACTURER.lowercase()
-        val b = Build.BRAND.lowercase()
-        return m.contains("huawei") || b.contains("huawei")
-    }
-
-    private fun isHonorBrand(): Boolean {
-        val m = Build.MANUFACTURER.lowercase()
-        val b = Build.BRAND.lowercase()
-        return m.contains("honor") || b.contains("honor")
-    }
-
+    /**
+     * Resolve overlay alpha based on brand and brightness control availability.
+     *
+     * Huawei/Honor + WRITE_SETTINGS: low alpha (system brightness=0 handles darkness)
+     * Others: high alpha (screenBrightness window param handles darkness)
+     */
     private fun resolveOverlayAlpha(): Int {
-        return when {
-            isHuaweiBrand() -> OVERLAY_ALPHA_HUAWEI
-            isHonorBrand() -> OVERLAY_ALPHA_HONOR
-            else -> OVERLAY_ALPHA_DEFAULT
+        return if (isHuaweiOrHonor() && canWriteSystemSettings()) {
+            OVERLAY_ALPHA_BRIGHTNESS_CONTROLLED
+        } else {
+            OVERLAY_ALPHA_DEFAULT
         }
     }
 
