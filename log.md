@@ -1,69 +1,175 @@
-针对华为和荣耀设备，你需要采用“组合拳”策略，而不是单纯依赖 Alpha 值。以下是详细的分析和解决方案：
-1. 为什么单纯的 Alpha 值会失效？
-全亮（Alpha 太低）：当 Alpha 值过低（如 0.1f）时，叠加层几乎透明。人眼看到的是正常的屏幕内容，录屏看到的也是正常内容。
-全黑（Alpha 太高）：当 Alpha 值过高（如 0.9f）时，叠加层几乎不透光。人眼看到的是黑屏，但录屏软件（MediaProjection）捕获的是帧缓冲区的数据。如果系统为了省电或优化，在检测到顶层是纯黑层时，可能会直接丢弃底层画面的渲染，导致录屏也是黑的。
-华为/荣耀的特殊性：华为和荣耀（特别是较新的 MagicOS 和 HarmonyOS）对隐私和功耗控制极严。它们有独立的“隐私保护”图层机制，单纯的颜色叠加很容易被系统识别为“恶意遮挡”而被拦截或优化掉。
-2. 解决方案：组合策略（针对华为/荣耀）
-为了实现“Android 黑屏，PC 可见”，你需要同时控制亮度、遮罩和系统设置。
-策略一：亮度归零 + 低 Alpha 遮罩（推荐）
-不要只靠遮罩变黑，要靠系统亮度变黑。
-原理：将系统屏幕亮度强制设置为 0（或最低硬件亮度），此时物理屏幕几乎不发光（人眼看是黑的）。然后在屏幕上放一个 低 Alpha 值（如 0.2~0.3） 的黑色遮罩层。
-为什么有效：
-人眼：屏幕物理不发光 + 遮罩 = 绝对黑屏。
-PC/MediaProjection：录屏 API 捕获的是显存中的像素数据，不受物理背光亮度影响。低 Alpha 的遮罩会让录屏画面变暗，但依然能看清内容（或者配合后面的策略二修正）。
-策略二：利用“隐私模式”窗口标志（Huawei/Honor 特定）
-根据华为开发者文档，存在专门的隐私模式 API，这比你自己画遮罩更可靠。
-代码逻辑：
-如果你的应用运行在华为/荣耀设备上，尝试使用系统提供的隐私模式，而不是自己创建 Overlay。
-java
+Rustdesk二次开发电脑端控制安卓手机端黑屏功能的代码
+RustDesk 是一款开源的远程控制软件，其在二次开发中实现电脑端控制安卓手机端时启用黑屏功能，核心在于修改 Android 客户端（被控端）的代码，使其在远程连接建立后能够关闭本地屏幕显示，同时保持远程控制会话流畅进行。这涉及到 Android 平台的屏幕控制、远程协议扩展以及与 RustDesk 核心逻辑的集成。
+1. 技术原理与方案设计
+黑屏功能的核心是视觉隔离，即被控设备（安卓手机）的屏幕关闭或显示纯色，而控制端（电脑）仍然能看到并操作手机界面。根据参考资料，RustDesk 具备此类安全功能基础，例如其“黑屏模式”能在远程维护时实现“本地屏幕不可见、远程可操作的安全隔离”。对于安卓平台，实现此功能通常涉及以下几个层面：
+功能层面	技术实现方案	说明与关键点
+屏幕内容捕获	保持现有的 MediaProjection 或 Surface 捕获流程	这是远程控制的基础，必须持续运行以向控制端发送画面。
+本地屏幕控制	调用 Android 的 PowerManager 或 WindowManager API	使手机本地屏幕变黑或进入休眠状态，同时不影响后台的捕获服务。
+远程协议指令	扩展 RustDesk 的自定义信令	新增一个控制指令，由控制端发送，被控端接收并执行“黑屏”或“恢复”操作。
+安全与权限	确保 WAKE_LOCK 和 DISABLE_KEYGUARD 等权限	防止屏幕关闭后系统锁屏或进程被挂起，确保远程会话的连续性。
+2. 代码实现详解
+以下代码示例基于对 RustDesk Android 端源码结构的理解，展示了关键修改点。请注意，这是一个二次开发的示例框架，实际集成需要根据具体的 RustDesk 版本和代码结构进行调整。
+1. 扩展协议指令定义 首先，需要在 RustDesk 的通信协议中定义新的消息类型，用于控制端向被控端发送黑屏命令。通常可以在协议定义文件中添加。
+// 文件路径示例：rustdesk-android/app/src/main/java/com/rustdesk/protocol/Command.java
+public class Command {
+    // ... 其他已有命令
 
-编辑
-
-
-
-// 伪代码：尝试使用系统隐私模式（需适配鸿蒙/安卓版本）
-if (isHuaweiOrHonor()) {
-    // 请求特殊权限
-    // ohos.permission.PRIVACY_WINDOW
-    // 然后调用 window.setWindowPrivacyMode(true)
-    // 这会告诉系统：“这个窗口的内容不要被截屏/录屏看到”
-    // 但注意：这通常是用来“禁止截屏”的，你需要反向利用或结合透明Activity。
+    // 新增黑屏相关命令
+    public static final int CMD_BLACK_SCREEN_ON = 0x100; // 开启黑屏
+    public static final int CMD_BLACK_SCREEN_OFF = 0x101; // 关闭黑屏
 }
-注意：setWindowPrivacyMode(true) 通常是用来防止截屏的。你需要做的是创建一个普通Activity，然后在其上覆盖一个系统隐私层来阻挡人眼，但录屏时捕获的是普通Activity的数据。
-策略三：动态调整 Alpha 值（自适应）
-没有固定值，让程序自己找“中间值”。
-实现方法：
-定义一个范围：float minAlpha = 0.3f; float maxAlpha = 0.7f;
-提供一个调试接口（如音量键长按），让用户或测试人员手动微调。
-华为/荣耀默认值：建议从 0.5f - 0.6f 开始测试。因为华为屏幕素质好，对比度高，0.5f 的遮罩在低亮度下人眼可能觉得是黑的，但传感器/录屏依然能捕捉到灰度信息。
-3. 针对华为/荣耀的具体参数建议
-由于华为/荣耀的屏幕算法（如“极暗模式”）会动态调整伽马值，建议你在代码中做特殊处理：
-java
+2. 安卓被控端服务（核心实现） 在负责处理远程连接和屏幕捕获的 Android Service 中，实现黑屏逻辑。这里需要处理远程指令并调用系统 API。
+// 文件路径示例：rustdesk-android/app/src/main/java/com/rustdesk/service/CaptureService.java
+import android.content.Context;
+import android.os.PowerManager;
+import android.view.WindowManager;
+import android.graphics.PixelFormat;
+import android.view.View;
+import android.view.Gravity;
 
-编辑
+public class CaptureService {
+    private PowerManager.WakeLock mWakeLock;
+    private WindowManager mWindowManager;
+    private View mBlackView;
+    private boolean isBlackScreenActive = false;
 
+    private void initScreenControl(Context context) {
+        // 1. 获取 PowerManager 并创建唤醒锁，防止CPU休眠
+        PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        mWakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "RustDesk::BlackScreenWakeLock"
+        );
 
+        // 2. 获取 WindowManager，用于添加覆盖层
+        mWindowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+    }
 
-// 针对华为/荣耀的特殊配置
-if (isHuaweiBrand() || isHonorBrand()) {
-    // 1. 强制系统亮度为0（核心）
-    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 0);
-    
-    // 2. 设置遮罩 Alpha 值
-    // 不要设为 0.9（太黑会导致录屏黑），也不要设为 0.1（太亮）。
-    // 尝试 0.4 - 0.5 之间的值。
-    float overlayAlpha = 0.45f; 
-    
-    // 3. 设置窗口类型为系统级（确保层级最高）
-    params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-    
-    // 4. 关键：设置像素格式为半透明，而不是透明
-    params.format = PixelFormat.TRANSLUCENT; // 而不是 RGBA_8888 或 TRANSPARENT
+    /**
+     * 处理从控制端接收到的自定义命令
+     * @param command 命令码
+     */
+    public void handleCustomCommand(int command) {
+        switch (command) {
+            case Command.CMD_BLACK_SCREEN_ON:
+                enableBlackScreen();
+                break;
+            case Command.CMD_BLACK_SCREEN_OFF:
+                disableBlackScreen();
+                break;
+            default:
+                // 处理其他命令
+                break;
+        }
+    }
+
+    /**
+     * 启用黑屏功能
+     */
+    private void enableBlackScreen() {
+        if (isBlackScreenActive) {
+            return;
+        }
+        // 1. 获取唤醒锁，保持设备活跃
+        if (mWakeLock != null && !mWakeLock.isHeld()) {
+            mWakeLock.acquire();
+        }
+
+        // 2. 创建一个全屏的黑色覆盖层
+        mBlackView = new View(context);
+        mBlackView.setBackgroundColor(Color.BLACK);
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, // 需要 OVERLAY 权限
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                PixelFormat.TRANSLUCENT
+        );
+        params.gravity = Gravity.TOP | Gravity.START;
+
+        try {
+            mWindowManager.addView(mBlackView, params);
+            isBlackScreenActive = true;
+            // 此处可以添加日志，通知控制端操作成功
+        } catch (Exception e) {
+            e.printStackTrace();
+            // 处理权限异常等
+        }
+    }
+
+    /**
+     * 禁用黑屏功能
+     */
+    private void disableBlackScreen() {
+        if (!isBlackScreenActive || mBlackView == null) {
+            return;
+        }
+        try {
+            mWindowManager.removeView(mBlackView);
+            mBlackView = null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            // 释放唤醒锁
+            if (mWakeLock != null && mWakeLock.isHeld()) {
+                mWakeLock.release();
+            }
+            isBlackScreenActive = false;
+        }
+    }
+
+    // 在服务销毁时清理资源
+    @Override
+    public void onDestroy() {
+        disableBlackScreen();
+        super.onDestroy();
+    }
 }
-4. 总结
-不存在一个万能的中间数字。
-要实现华为/荣耀上的“黑屏可见”，请按以下步骤操作：
-第一步（最有效）：通过代码或系统设置将物理屏幕亮度强制拉到 0。这是实现“人眼黑屏”最彻底的方法。
-第二步：在亮度为 0 的屏幕上，放置一个 Alpha = 0.45f 左右的黑色半透明遮罩。
-第三步：确保你的录屏服务（MediaProjection）拥有正确的权限，并且在创建 VirtualDisplay 时，不要应用任何色彩过滤。
-这样，物理屏幕是黑的（亮度 0），但录屏软件读取的显存数据是“原画面 + 0.45 遮罩”，PC 端依然能看到一个虽然偏暗但清晰的画面。
+3. 电脑控制端（发送指令） 控制端需要在用户界面（UI）上添加触发黑屏功能的按钮，并通过 RustDesk 的通信链路发送对应的命令。
+// 文件路径示例：rustdesk/src/ui/remote_window.rs (Rust 客户端)
+// 这是一个简化的 Rust 示例，展示如何发送自定义命令
+use std::net::TcpStream;
+use std::io::Write;
+
+impl RemoteWindow {
+    // ... 其他代码
+
+    // 假设有一个发送原始命令的函数
+    fn send_command_to_peer(&self, command: u32) {
+        if let Some(mut stream) = &self.control_stream { // 假设存在控制流
+            let cmd_bytes = command.to_be_bytes(); // 转换为网络字节序
+            if let Err(e) = stream.write_all(&cmd_bytes) {
+                eprintln!("Failed to send command: {}", e);
+            }
+        }
+    }
+
+    // 响应UI按钮点击，发送开启黑屏命令
+    fn on_black_screen_button_clicked(&self) {
+        self.send_command_to_peer(0x100); // 对应 CMD_BLACK_SCREEN_ON
+    }
+
+    // 响应UI按钮点击，发送关闭黑屏命令
+    fn on_restore_screen_button_clicked(&self) {
+        self.send_command_to_peer(0x101); // 对应 CMD_BLACK_SCREEN_OFF
+    }
+}
+3. 关键配置与权限
+安卓端的修改需要相应的系统权限，必须在 AndroidManifest.xml 中声明：
+<!-- 文件路径：rustdesk-android/app/src/main/AndroidManifest.xml -->
+<manifest ...>
+    <!-- 使用唤醒锁的权限 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 禁用键盘锁的权限（部分场景可能需要） -->
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <!-- 系统悬浮窗权限 (TYPE_APPLICATION_OVERLAY 所需) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <application ...>
+        ...
+    </application>
+</manifest>
+同时，对于 Android 6.0 (API 23) 及以上，SYSTEM_ALERT_WINDOW 是危险权限，需要在运行时动态申请。

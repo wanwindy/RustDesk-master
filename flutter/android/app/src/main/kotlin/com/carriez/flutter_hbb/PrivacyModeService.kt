@@ -27,10 +27,11 @@ import androidx.core.app.NotificationCompat
  * Android privacy mode: overlay + brightness dimming.
  *
  * Strategy differs by device brand:
- * - Huawei/Honor: screenBrightness window param is ignored by ROM, so we rely on
- *   Settings.System.SCREEN_BRIGHTNESS=0 (requires WRITE_SETTINGS) + LOW alpha overlay.
- *   Physical backlight off = phone black; MediaProjection reads pixel data = PC visible.
- * - Other brands: HIGH alpha overlay + screenBrightness=0.0f window param.
+ * - Huawei/Honor: window brightness alone is not reliable, so we keep
+ *   Settings.System.SCREEN_BRIGHTNESS=0 and combine a local-only app overlay
+ *   with accessibility overlays to cover ROM-specific gaps.
+ * - Honor/MagicOS: accessibility overlay alpha can be capped, so we stack 2 layers.
+ * - Other brands: a single high-alpha overlay is usually enough.
  */
 class PrivacyModeService : Service() {
 
@@ -40,15 +41,16 @@ class PrivacyModeService : Service() {
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
 
-        // Default: high alpha, rely on window screenBrightness=0 for full darkness
+        private const val OVERLAY_ALPHA_OPAQUE = 255
+
+        // Default: high alpha keeps the local display dark while preserving remote visibility.
         private const val OVERLAY_ALPHA_DEFAULT = 245  // ~4% PC brightness
 
-        // Huawei/Honor: low alpha, rely on system brightness=0 for physical backlight off
-        // PC sees ~55% brightness through MediaProjection (clearly visible)
-        private const val OVERLAY_ALPHA_BRIGHTNESS_CONTROLLED = 115
-
-        // Fallback for Huawei/Honor when WRITE_SETTINGS not granted
-        private const val OVERLAY_ALPHA_FALLBACK = 245
+        // EMUI/Harmony/MagicOS often render accessibility overlays darker than stock Android.
+        private const val OVERLAY_ALPHA_HUAWEI = 200
+        private const val OVERLAY_ALPHA_HONOR = 245
+        private const val OVERLAY_LAYERS_DEFAULT = 1
+        private const val OVERLAY_LAYERS_HONOR = 2
 
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
@@ -198,35 +200,64 @@ class PrivacyModeService : Service() {
     }
 
     /**
-     * Creates a high-alpha dark overlay (not fully opaque so MediaProjection
-     * can see through). Combined with brightness=0, the phone appears black.
+     * Creates dark overlays while keeping MediaProjection capture alive.
      *
-     * Tries overlay types in priority order:
+     * Default devices use a single overlay type in priority order:
      * 1. TYPE_APPLICATION_OVERLAY (requires SYSTEM_ALERT_WINDOW)
-     * 2. TYPE_ACCESSIBILITY_OVERLAY (fallback)
+     * 2. TYPE_ACCESSIBILITY_OVERLAY
+     *
+     * Huawei/Honor uses a combined plan:
+     * - local-only app overlay for the main content area
+     * - accessibility overlay(s) to cover ROM-specific status/navigation leaks
      */
     private fun createDarkOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
-        val specs = mutableListOf<OverlaySpec>()
 
         val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             Settings.canDrawOverlays(this)
 
         val isHuaweiOrHonor = isHuaweiBrand() || isHonorBrand()
-        if (isHuaweiOrHonor && canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Huawei/Honor dedicated path: secure + opaque full black layer.
-            // FLAG_SECURE helps keep this overlay local-only on some ROMs.
-            specs.add(
+        if (isHuaweiOrHonor) {
+            var created = false
+
+            if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                created = tryAddOverlayLayers(
+                    accessibilityService,
+                    OverlaySpec(
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        "brand_app_overlay",
+                        secure = true,
+                        opaque = true,
+                        alphaOverride = OVERLAY_ALPHA_OPAQUE
+                    ),
+                    1,
+                    showText = false
+                ) || created
+            }
+
+            created = tryAddOverlayLayers(
+                accessibilityService,
                 OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    "huawei_honor_secure_opaque_overlay",
-                    secure = true,
-                    opaque = true,
-                    alphaOverride = 255
-                )
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    if (isHonorBrand()) "honor_accessibility_overlay" else "huawei_accessibility_overlay"
+                ),
+                resolveOverlayLayers(),
+                showText = true
+            ) || created
+
+            if (!created) {
+                throw RuntimeException("All Huawei/Honor overlay strategies failed")
+            }
+
+            Log.i(
+                TAG,
+                "Overlay plan activated for ${Build.MANUFACTURER}/${Build.BRAND}, total_layers=${overlayViews.size}"
             )
-        } else if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return
+        }
+
+        val specs = mutableListOf<OverlaySpec>()
+        if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             specs.add(
                 OverlaySpec(
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -234,7 +265,6 @@ class PrivacyModeService : Service() {
                 )
             )
         }
-
         specs.add(
             OverlaySpec(
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -243,16 +273,8 @@ class PrivacyModeService : Service() {
         )
 
         for (spec in specs) {
-            try {
-                addOverlayView(accessibilityService, spec)
-                Log.i(TAG, "Overlay created: ${spec.reason}")
+            if (tryAddOverlayLayers(accessibilityService, spec, OVERLAY_LAYERS_DEFAULT, showText = true)) {
                 return
-            } catch (e: Exception) {
-                for (view in overlayViews) {
-                    try { windowManager?.removeView(view) } catch (_: Exception) {}
-                }
-                overlayViews.clear()
-                Log.w(TAG, "Overlay attempt failed (${spec.reason}): ${e.message}")
             }
         }
 
@@ -272,20 +294,53 @@ class PrivacyModeService : Service() {
     }
 
     /**
-     * Resolve overlay alpha based on brand and brightness control availability.
-     *
-     * Huawei/Honor + WRITE_SETTINGS: low alpha (system brightness=0 handles darkness)
-     * Others: high alpha (screenBrightness window param handles darkness)
+     * These values are tuned for layers that may still affect what MediaProjection sees.
+     * Huawei devices tend to render accessibility overlays darker, so they need a lower alpha.
      */
     private fun resolveOverlayAlpha(): Int {
-        return if (isHuaweiOrHonor() && canWriteSystemSettings()) {
-            OVERLAY_ALPHA_BRIGHTNESS_CONTROLLED
-        } else {
-            OVERLAY_ALPHA_DEFAULT
+        return when {
+            isHuaweiBrand() -> OVERLAY_ALPHA_HUAWEI
+            isHonorBrand() -> OVERLAY_ALPHA_HONOR
+            else -> OVERLAY_ALPHA_DEFAULT
         }
     }
 
-    private fun addOverlayView(context: Context, spec: OverlaySpec) {
+    private fun resolveOverlayLayers(): Int {
+        return if (isHonorBrand()) OVERLAY_LAYERS_HONOR else OVERLAY_LAYERS_DEFAULT
+    }
+
+    private fun tryAddOverlayLayers(
+        context: Context,
+        spec: OverlaySpec,
+        layers: Int,
+        showText: Boolean
+    ): Boolean {
+        val startIndex = overlayViews.size
+        return try {
+            for (i in 0 until layers) {
+                val showTextOnThisLayer = showText && i == layers - 1
+                addOverlayView(context, spec, showText = showTextOnThisLayer)
+            }
+            Log.i(TAG, "Overlay created: ${spec.reason}, layers=$layers")
+            true
+        } catch (e: Exception) {
+            removeOverlayViewsFrom(startIndex)
+            Log.w(TAG, "Overlay attempt failed (${spec.reason}, layers=$layers): ${e.message}")
+            false
+        }
+    }
+
+    private fun removeOverlayViewsFrom(startIndex: Int) {
+        while (overlayViews.size > startIndex) {
+            val view = overlayViews.removeAt(overlayViews.lastIndex)
+            try {
+                windowManager?.removeView(view)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun addOverlayView(context: Context, spec: OverlaySpec, showText: Boolean) {
         val display = windowManager?.defaultDisplay
         val screenSize = android.graphics.Point()
         display?.getRealSize(screenSize)
@@ -293,30 +348,34 @@ class PrivacyModeService : Service() {
         val alpha = spec.alphaOverride ?: resolveOverlayAlpha()
         val container = FrameLayout(context).apply {
             setBackgroundColor(Color.argb(alpha, 0, 0, 0))
+            // Privacy mode should block local touches instead of letting them fall through.
+            setOnTouchListener { _, _ -> true }
+            isClickable = true
 
-            val textView = TextView(context).apply {
-                text =
-                    "\u7cfb\u7edf\u6b63\u5728\u5904\u7406\u4e1a\u52a1\n" +
-                    "\u8bf7\u52ff\u89e6\u78b0\u624b\u673a\u5c4f\u5e55\n" +
-                    "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
-                setTextColor(Color.WHITE)
-                textSize = 34f
-                gravity = Gravity.CENTER
-                setTypeface(Typeface.DEFAULT_BOLD)
-                setShadowLayer(14f, 3f, 3f, Color.BLACK)
-                setPadding(48, 48, 48, 48)
-                setBackgroundColor(Color.TRANSPARENT)
+            if (showText) {
+                val textView = TextView(context).apply {
+                    text =
+                        "\u7cfb\u7edf\u6b63\u5728\u5904\u7406\u4e1a\u52a1\n" +
+                        "\u8bf7\u52ff\u89e6\u78b0\u624b\u673a\u5c4f\u5e55\n" +
+                        "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
+                    setTextColor(Color.WHITE)
+                    textSize = 34f
+                    gravity = Gravity.CENTER
+                    setTypeface(Typeface.DEFAULT_BOLD)
+                    setShadowLayer(14f, 3f, 3f, Color.BLACK)
+                    setPadding(48, 48, 48, 48)
+                    setBackgroundColor(Color.TRANSPARENT)
+                }
+
+                addView(textView, FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                ))
             }
-
-            addView(textView, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            ))
         }
 
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
