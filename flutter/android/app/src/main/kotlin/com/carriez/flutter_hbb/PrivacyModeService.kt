@@ -30,8 +30,12 @@ import androidx.core.app.NotificationCompat
  * - Huawei/Honor: window brightness alone is not reliable, so we keep
  *   Settings.System.SCREEN_BRIGHTNESS=0 and combine a semi-transparent app overlay
  *   with accessibility overlays to cover ROM-specific gaps.
+ * - OPPO/realme/OnePlus: app overlays may be captured into MediaProjection, so
+ *   we prefer accessibility-only background overlays.
  * - Honor/MagicOS: accessibility overlay alpha can be capped, so we stack 2 layers.
- * - Other brands: a single high-alpha overlay is usually enough.
+ * - Subtitle text is rendered in a dedicated accessibility text layer so Android
+ *   can keep the notice while the PC side avoids app-overlay text capture.
+ * - Other brands: a single high-alpha background overlay is usually enough.
  */
 class PrivacyModeService : Service() {
 
@@ -52,8 +56,11 @@ class PrivacyModeService : Service() {
         // EMUI/Harmony/MagicOS often render accessibility overlays darker than stock Android.
         private const val OVERLAY_ALPHA_HUAWEI = 110
         private const val OVERLAY_ALPHA_HONOR = 96
+        private const val OVERLAY_ALPHA_OPPO = 245
+        private const val OVERLAY_ALPHA_TEXT_ONLY = 0
         private const val OVERLAY_LAYERS_DEFAULT = 1
         private const val OVERLAY_LAYERS_HONOR = 2
+        private const val OVERLAY_LAYERS_OPPO = 1
 
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
@@ -86,6 +93,14 @@ class PrivacyModeService : Service() {
             val b = Build.BRAND.lowercase()
             return m.contains("huawei") || b.contains("huawei") ||
                    m.contains("honor") || b.contains("honor")
+        }
+
+        fun isOppoFamily(): Boolean {
+            val m = Build.MANUFACTURER.lowercase()
+            val b = Build.BRAND.lowercase()
+            return m.contains("oppo") || b.contains("oppo") ||
+                m.contains("realme") || b.contains("realme") ||
+                m.contains("oneplus") || b.contains("oneplus")
         }
     }
 
@@ -211,7 +226,8 @@ class PrivacyModeService : Service() {
      *
      * Huawei/Honor uses a combined plan:
      * - one extra semi-transparent app overlay for the main content area
-     * - accessibility overlay(s) to cover ROM-specific status/navigation leaks
+     * - accessibility background overlay(s) to cover ROM-specific status/navigation leaks
+     * - one accessibility text-only layer for the local notice
      */
     private fun createDarkOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -243,16 +259,41 @@ class PrivacyModeService : Service() {
                     if (isHonorBrand()) "honor_accessibility_overlay" else "huawei_accessibility_overlay"
                 ),
                 resolveOverlayLayers(),
-                showText = true
+                showText = false
             ) || created
 
             if (!created) {
                 throw RuntimeException("All Huawei/Honor overlay strategies failed")
             }
 
+            tryAddTextOnlyOverlay(accessibilityService, "brand_text_overlay")
+
             Log.i(
                 TAG,
                 "Overlay plan activated for ${Build.MANUFACTURER}/${Build.BRAND}, total_layers=${overlayViews.size}"
+            )
+            return
+        }
+
+        if (isOppoFamily()) {
+            val created = tryAddOverlayLayers(
+                accessibilityService,
+                OverlaySpec(
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    "oppo_accessibility_overlay"
+                ),
+                resolveOverlayLayers(),
+                showText = false
+            )
+
+            if (!created) {
+                throw RuntimeException("All OPPO-family overlay strategies failed")
+            }
+
+            tryAddTextOnlyOverlay(accessibilityService, "oppo_text_overlay")
+            Log.i(
+                TAG,
+                "Accessibility-only overlay plan activated for ${Build.MANUFACTURER}/${Build.BRAND}, total_layers=${overlayViews.size}"
             )
             return
         }
@@ -274,7 +315,8 @@ class PrivacyModeService : Service() {
         )
 
         for (spec in specs) {
-            if (tryAddOverlayLayers(accessibilityService, spec, OVERLAY_LAYERS_DEFAULT, showText = true)) {
+            if (tryAddOverlayLayers(accessibilityService, spec, OVERLAY_LAYERS_DEFAULT, showText = false)) {
+                tryAddTextOnlyOverlay(accessibilityService, "default_text_overlay")
                 return
             }
         }
@@ -302,12 +344,17 @@ class PrivacyModeService : Service() {
         return when {
             isHuaweiBrand() -> OVERLAY_ALPHA_HUAWEI
             isHonorBrand() -> OVERLAY_ALPHA_HONOR
+            isOppoFamily() -> OVERLAY_ALPHA_OPPO
             else -> OVERLAY_ALPHA_DEFAULT
         }
     }
 
     private fun resolveOverlayLayers(): Int {
-        return if (isHonorBrand()) OVERLAY_LAYERS_HONOR else OVERLAY_LAYERS_DEFAULT
+        return when {
+            isHonorBrand() -> OVERLAY_LAYERS_HONOR
+            isOppoFamily() -> OVERLAY_LAYERS_OPPO
+            else -> OVERLAY_LAYERS_DEFAULT
+        }
     }
 
     private fun tryAddOverlayLayers(
@@ -329,6 +376,19 @@ class PrivacyModeService : Service() {
             Log.w(TAG, "Overlay attempt failed (${spec.reason}, layers=$layers): ${e.message}")
             false
         }
+    }
+
+    private fun tryAddTextOnlyOverlay(context: Context, reason: String): Boolean {
+        return tryAddOverlayLayers(
+            context,
+            OverlaySpec(
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                reason,
+                alphaOverride = OVERLAY_ALPHA_TEXT_ONLY
+            ),
+            1,
+            showText = true
+        )
     }
 
     private fun removeOverlayViewsFrom(startIndex: Int) {
@@ -374,8 +434,6 @@ class PrivacyModeService : Service() {
         }
 
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            // Must stay non-touchable, otherwise remote gestures injected by
-            // AccessibilityService.dispatchGesture will hit the overlay too.
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
