@@ -28,7 +28,7 @@ import androidx.core.app.NotificationCompat
  *
  * Strategy differs by device brand:
  * - Huawei/Honor: window brightness alone is not reliable, so we keep
- *   Settings.System.SCREEN_BRIGHTNESS=0 and combine a local-only app overlay
+ *   Settings.System.SCREEN_BRIGHTNESS=0 and combine a semi-transparent app overlay
  *   with accessibility overlays to cover ROM-specific gaps.
  * - Honor/MagicOS: accessibility overlay alpha can be capped, so we stack 2 layers.
  * - Other brands: a single high-alpha overlay is usually enough.
@@ -41,14 +41,17 @@ class PrivacyModeService : Service() {
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
 
-        private const val OVERLAY_ALPHA_OPAQUE = 255
+        // Huawei/Honor additional app-overlay layer:
+        // only used as a supplemental darkening layer, not a fully black mask,
+        // so MediaProjection still sees the remote content.
+        private const val OVERLAY_ALPHA_BRAND_APP = 96
 
         // Default: high alpha keeps the local display dark while preserving remote visibility.
         private const val OVERLAY_ALPHA_DEFAULT = 245  // ~4% PC brightness
 
         // EMUI/Harmony/MagicOS often render accessibility overlays darker than stock Android.
-        private const val OVERLAY_ALPHA_HUAWEI = 200
-        private const val OVERLAY_ALPHA_HONOR = 245
+        private const val OVERLAY_ALPHA_HUAWEI = 110
+        private const val OVERLAY_ALPHA_HONOR = 96
         private const val OVERLAY_LAYERS_DEFAULT = 1
         private const val OVERLAY_LAYERS_HONOR = 2
 
@@ -207,7 +210,7 @@ class PrivacyModeService : Service() {
      * 2. TYPE_ACCESSIBILITY_OVERLAY
      *
      * Huawei/Honor uses a combined plan:
-     * - local-only app overlay for the main content area
+     * - one extra semi-transparent app overlay for the main content area
      * - accessibility overlay(s) to cover ROM-specific status/navigation leaks
      */
     private fun createDarkOverlay(accessibilityService: Context) {
@@ -226,9 +229,7 @@ class PrivacyModeService : Service() {
                     OverlaySpec(
                         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                         "brand_app_overlay",
-                        secure = true,
-                        opaque = true,
-                        alphaOverride = OVERLAY_ALPHA_OPAQUE
+                        alphaOverride = OVERLAY_ALPHA_BRAND_APP
                     ),
                     1,
                     showText = false
