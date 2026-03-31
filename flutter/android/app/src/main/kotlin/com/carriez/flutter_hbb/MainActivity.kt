@@ -301,8 +301,9 @@ class MainActivity : FlutterActivity() {
                                 return@setMethodCallHandler
                             }
 
-                            // Huawei/Honor: check WRITE_SETTINGS before starting
-                            if (enable && PrivacyModeService.isHuaweiOrHonor()) {
+                            // Brightness-first privacy mode needs WRITE_SETTINGS on
+                            // Huawei/Honor, OPPO family and vivo/iQOO devices.
+                            if (enable && PrivacyModeService.requiresWriteSettingsPermission()) {
                                 val canWrite = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
                                     Settings.System.canWrite(this)
                                 if (!canWrite) {

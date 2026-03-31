@@ -30,11 +30,12 @@ import androidx.core.app.NotificationCompat
  * - Huawei/Honor: window brightness alone is not reliable, so we keep
  *   Settings.System.SCREEN_BRIGHTNESS=0 and combine a semi-transparent app overlay
  *   with accessibility overlays to cover ROM-specific gaps.
- * - OPPO/realme/OnePlus: app overlays may be captured into MediaProjection, so
- *   we prefer accessibility-only background overlays.
+ * - OPPO/realme/OnePlus/vivo/iQOO: remote capture is more sensitive to full-screen
+ *   overlays on some ROMs, so we prefer brightness-driven blackout and keep only
+ *   a local notice layer when possible.
  * - Honor/MagicOS: accessibility overlay alpha can be capped, so we stack 2 layers.
- * - Subtitle text is rendered in a dedicated accessibility text layer so Android
- *   can keep the notice while the PC side avoids app-overlay text capture.
+ * - Subtitle text is rendered in a separate text-only layer so Android can keep
+ *   the notice without reintroducing the old full-screen capture pollution.
  * - Other brands: a single high-alpha background overlay is usually enough.
  */
 class PrivacyModeService : Service() {
@@ -102,6 +103,17 @@ class PrivacyModeService : Service() {
                 m.contains("realme") || b.contains("realme") ||
                 m.contains("oneplus") || b.contains("oneplus")
         }
+
+        fun isVivoFamily(): Boolean {
+            val m = Build.MANUFACTURER.lowercase()
+            val b = Build.BRAND.lowercase()
+            return m.contains("vivo") || b.contains("vivo") ||
+                m.contains("iqoo") || b.contains("iqoo")
+        }
+
+        fun requiresWriteSettingsPermission(): Boolean {
+            return isHuaweiOrHonor() || isOppoFamily() || isVivoFamily()
+        }
     }
 
     private val overlayViews = mutableListOf<View>()
@@ -145,13 +157,16 @@ class PrivacyModeService : Service() {
             return
         }
 
-        // Huawei/Honor: WRITE_SETTINGS is critical for brightness control.
-        // Without it, overlay alpha alone can't achieve full black screen.
-        val needsBrightnessControl = isHuaweiOrHonor()
+        // Huawei/Honor and brightness-first ROMs rely on WRITE_SETTINGS to make the
+        // device screen go dark without polluting the remote capture.
+        val needsBrightnessControl = requiresWriteSettingsPermission()
         val hasBrightnessControl = canWriteSystemSettings()
 
         if (needsBrightnessControl && !hasBrightnessControl) {
-            Log.w(TAG, "Huawei/Honor device without WRITE_SETTINGS, requesting permission")
+            Log.w(
+                TAG,
+                "WRITE_SETTINGS missing for privacy mode on ${Build.MANUFACTURER}/${Build.BRAND}"
+            )
             mainHandler.post {
                 Toast.makeText(
                     this,
@@ -168,7 +183,8 @@ class PrivacyModeService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to open WRITE_SETTINGS page", e)
             }
-            // Don't start privacy mode without brightness control on Huawei/Honor
+            // For these ROMs we would rather fail closed than leave the device
+            // visible locally or make the remote side fully black.
             isActive = false
             stopSelf()
             return
@@ -228,6 +244,10 @@ class PrivacyModeService : Service() {
      * - one extra semi-transparent app overlay for the main content area
      * - accessibility background overlay(s) to cover ROM-specific status/navigation leaks
      * - one accessibility text-only layer for the local notice
+     *
+     * OPPO/realme/OnePlus/vivo/iQOO uses a brightness-first plan:
+     * - no full-screen dark overlay, to avoid remote capture turning black
+     * - optional text-only notice layer for local guidance
      */
     private fun createDarkOverlay(accessibilityService: Context) {
         windowManager = accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -275,25 +295,15 @@ class PrivacyModeService : Service() {
             return
         }
 
-        if (isOppoFamily()) {
-            val created = tryAddOverlayLayers(
+        if (prefersBrightnessOnlyOverlayPlan()) {
+            val noticeCreated = tryAddLocalNoticeOverlay(
                 accessibilityService,
-                OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                    "oppo_accessibility_overlay"
-                ),
-                resolveOverlayLayers(),
-                showText = false
+                canDrawAppOverlay,
+                "brightness_primary_notice"
             )
-
-            if (!created) {
-                throw RuntimeException("All OPPO-family overlay strategies failed")
-            }
-
-            tryAddTextOnlyOverlay(accessibilityService, "oppo_text_overlay")
             Log.i(
                 TAG,
-                "Accessibility-only overlay plan activated for ${Build.MANUFACTURER}/${Build.BRAND}, total_layers=${overlayViews.size}"
+                "Brightness-first privacy plan activated for ${Build.MANUFACTURER}/${Build.BRAND}, local_notice=$noticeCreated"
             )
             return
         }
@@ -334,6 +344,10 @@ class PrivacyModeService : Service() {
         val m = Build.MANUFACTURER.lowercase()
         val b = Build.BRAND.lowercase()
         return m.contains("honor") || b.contains("honor")
+    }
+
+    private fun prefersBrightnessOnlyOverlayPlan(): Boolean {
+        return isOppoFamily() || isVivoFamily()
     }
 
     /**
@@ -378,17 +392,41 @@ class PrivacyModeService : Service() {
         }
     }
 
-    private fun tryAddTextOnlyOverlay(context: Context, reason: String): Boolean {
+    private fun tryAddTextOnlyOverlay(
+        context: Context,
+        reason: String,
+        windowType: Int = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    ): Boolean {
         return tryAddOverlayLayers(
             context,
             OverlaySpec(
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                windowType,
                 reason,
                 alphaOverride = OVERLAY_ALPHA_TEXT_ONLY
             ),
             1,
             showText = true
         )
+    }
+
+    private fun tryAddLocalNoticeOverlay(
+        context: Context,
+        canDrawAppOverlay: Boolean,
+        reason: String
+    ): Boolean {
+        if (tryAddTextOnlyOverlay(context, "${reason}_accessibility")) {
+            return true
+        }
+
+        if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return tryAddTextOnlyOverlay(
+                context,
+                "${reason}_app_overlay",
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            )
+        }
+
+        return false
     }
 
     private fun removeOverlayViewsFrom(startIndex: Int) {
