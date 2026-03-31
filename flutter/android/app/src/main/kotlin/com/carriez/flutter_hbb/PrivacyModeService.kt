@@ -349,9 +349,6 @@ class PrivacyModeService : Service() {
         val alpha = spec.alphaOverride ?: resolveOverlayAlpha()
         val container = FrameLayout(context).apply {
             setBackgroundColor(Color.argb(alpha, 0, 0, 0))
-            // Privacy mode should block local touches instead of letting them fall through.
-            setOnTouchListener { _, _ -> true }
-            isClickable = true
 
             if (showText) {
                 val textView = TextView(context).apply {
@@ -377,6 +374,9 @@ class PrivacyModeService : Service() {
         }
 
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            // Must stay non-touchable, otherwise remote gestures injected by
+            // AccessibilityService.dispatchGesture will hit the overlay too.
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
