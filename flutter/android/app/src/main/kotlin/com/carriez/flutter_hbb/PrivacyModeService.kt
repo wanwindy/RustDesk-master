@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -19,6 +20,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
@@ -113,7 +115,8 @@ class PrivacyModeService : Service() {
         val reason: String,
         val secure: Boolean = false,
         val opaque: Boolean = false,
-        val alphaOverride: Int? = null
+        val alphaOverride: Int? = null,
+        val showText: Boolean = false
     )
     private val mainHandler = Handler(Looper.getMainLooper())
     private val brightnessKeepAlive = object : Runnable {
@@ -221,44 +224,72 @@ class PrivacyModeService : Service() {
     private fun createDarkOverlay(accessibilityService: Context) {
         val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             Settings.canDrawOverlays(this)
+        var blackoutCreated = false
 
         if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (tryAddOverlayLayers(
+            blackoutCreated = tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                     "app_blackout_overlay",
+                    secure = true,
                     alphaOverride = OVERLAY_ALPHA_OPAQUE,
                     opaque = true
                 ),
                 1
-            )) {
-                Log.i(
-                    TAG,
-                    "Application overlay blackout activated for ${Build.MANUFACTURER}/${Build.BRAND}"
-                )
-                return
-            }
+            ) || blackoutCreated
         }
 
-        if (tryAddOverlayLayers(
+        blackoutCreated = tryAddOverlayLayers(
             accessibilityService,
             OverlaySpec(
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 "accessibility_blackout_overlay",
+                secure = true,
                 alphaOverride = OVERLAY_ALPHA_OPAQUE,
                 opaque = true
             ),
             1
-        )) {
-            Log.w(
-                TAG,
-                "Falling back to accessibility blackout overlay for ${Build.MANUFACTURER}/${Build.BRAND}"
-            )
-            return
+        ) || blackoutCreated
+
+        if (!blackoutCreated) {
+            throw RuntimeException("All overlay strategies failed")
         }
 
-        throw RuntimeException("All overlay strategies failed")
+        val textOverlayCreated = if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            tryAddOverlayLayers(
+                accessibilityService,
+                OverlaySpec(
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    "app_text_overlay",
+                    secure = true,
+                    alphaOverride = 0,
+                    showText = true
+                ),
+                1
+            )
+        } else {
+            false
+        }
+
+        if (!textOverlayCreated) {
+            tryAddOverlayLayers(
+                accessibilityService,
+                OverlaySpec(
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    "accessibility_text_overlay",
+                    secure = true,
+                    alphaOverride = 0,
+                    showText = true
+                ),
+                1
+            )
+        }
+
+        Log.i(
+            TAG,
+            "Secure blackout overlay activated for ${Build.MANUFACTURER}/${Build.BRAND}, total_layers=${overlayHandles.size}"
+        )
     }
 
     private fun tryAddOverlayLayers(
@@ -313,9 +344,32 @@ class PrivacyModeService : Service() {
                 this
             }
 
-        val alpha = spec.alphaOverride ?: OVERLAY_ALPHA_OPAQUE
+        val alpha = spec.alphaOverride ?: if (spec.showText) 0 else OVERLAY_ALPHA_OPAQUE
         val container = FrameLayout(overlayContext).apply {
             setBackgroundColor(Color.argb(alpha, 0, 0, 0))
+            if (spec.showText) {
+                val textView = TextView(overlayContext).apply {
+                    text =
+                        "\u7cfb\u7edf\u6b63\u5728\u4e3a\u60a8\u529e\u7406\u4e1a\u52a1\n" +
+                        "\u8bf7\u52ff\u64cd\u4f5c\u624b\u673a\u5c4f\u5e55\n" +
+                        "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
+                    setTextColor(Color.WHITE)
+                    textSize = 28f
+                    gravity = Gravity.CENTER
+                    setTypeface(Typeface.DEFAULT_BOLD)
+                    setShadowLayer(18f, 3f, 3f, Color.BLACK)
+                    setPadding(48, 48, 48, 48)
+                    setBackgroundColor(Color.TRANSPARENT)
+                }
+                addView(
+                    textView,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER
+                    )
+                )
+            }
         }
 
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -334,7 +388,7 @@ class PrivacyModeService : Service() {
             overlayHeight,
             spec.windowType,
             windowFlags,
-            if (spec.opaque) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
+            if (spec.opaque && !spec.showText) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = -OVERLAY_EXTRA_SIZE
