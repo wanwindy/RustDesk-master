@@ -224,10 +224,9 @@ class PrivacyModeService : Service() {
     private fun createDarkOverlay(accessibilityService: Context) {
         val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             Settings.canDrawOverlays(this)
-        var blackoutCreated = false
-
-        if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            blackoutCreated = tryAddOverlayLayers(
+        val useAppOverlay = canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        val blackoutCreated = if (useAppOverlay) {
+            tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -237,26 +236,26 @@ class PrivacyModeService : Service() {
                     opaque = true
                 ),
                 1
-            ) || blackoutCreated
+            )
+        } else {
+            tryAddOverlayLayers(
+                accessibilityService,
+                OverlaySpec(
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    "accessibility_blackout_overlay",
+                    secure = true,
+                    alphaOverride = OVERLAY_ALPHA_OPAQUE,
+                    opaque = true
+                ),
+                1
+            )
         }
-
-        blackoutCreated = tryAddOverlayLayers(
-            accessibilityService,
-            OverlaySpec(
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                "accessibility_blackout_overlay",
-                secure = true,
-                alphaOverride = OVERLAY_ALPHA_OPAQUE,
-                opaque = true
-            ),
-            1
-        ) || blackoutCreated
 
         if (!blackoutCreated) {
             throw RuntimeException("All overlay strategies failed")
         }
 
-        val textOverlayCreated = if (canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val textOverlayCreated = if (useAppOverlay) {
             tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
@@ -288,7 +287,7 @@ class PrivacyModeService : Service() {
 
         Log.i(
             TAG,
-            "Secure blackout overlay activated for ${Build.MANUFACTURER}/${Build.BRAND}, total_layers=${overlayHandles.size}"
+            "Secure blackout overlay activated for ${Build.MANUFACTURER}/${Build.BRAND}, mode=${if (useAppOverlay) "app" else "accessibility"}, total_layers=${overlayHandles.size}"
         )
     }
 
