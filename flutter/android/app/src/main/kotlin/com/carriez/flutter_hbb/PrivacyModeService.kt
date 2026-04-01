@@ -25,16 +25,12 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
 /**
- * Android privacy mode: local blackout overlay + optional brightness dimming.
+ * Android privacy mode uses per-ROM strategies.
  *
- * Privacy mode now prefers a full-black application overlay. MediaProjection
- * commonly treats SYSTEM_ALERT_WINDOW overlays as local controls, so the phone
- * can go black while the remote PC still sees the real screen. Brightness
- * dimming remains enabled on ROMs that need extra help reaching near-black.
- *
- * We intentionally avoid rendering the guidance subtitle inside the overlay
- * itself, because some OEMs may leak accessibility-style text layers into the
- * captured stream. Guidance lives in the persistent Android notification only.
+ * Huawei/Honor devices have shown that a secure application overlay can keep
+ * the Android device black with local subtitle text while the remote PC still
+ * sees the real screen. Other ROMs often leak full-screen overlays into
+ * MediaProjection, so they stay on the brightness-anchor compatibility path.
  */
 class PrivacyModeService : Service() {
 
@@ -44,10 +40,11 @@ class PrivacyModeService : Service() {
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
         private const val OVERLAY_ALPHA_OPAQUE = 255
+        private const val BRIGHTNESS_ANCHOR_SIZE = 1
 
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
-        private const val BRIGHTNESS_KEEP_ALIVE_MS = 1200L
+        private const val BRIGHTNESS_KEEP_ALIVE_MS = 400L
         private const val KEY_SCREEN_AUTO_BRIGHTNESS_ADJ = "screen_auto_brightness_adj"
 
         @Volatile
@@ -95,6 +92,10 @@ class PrivacyModeService : Service() {
 
         fun requiresWriteSettingsPermission(): Boolean {
             return isHuaweiOrHonor() || isOppoFamily() || isVivoFamily()
+        }
+
+        fun prefersBlackoutOverlayPlan(): Boolean {
+            return isHuaweiOrHonor()
         }
     }
 
@@ -213,50 +214,29 @@ class PrivacyModeService : Service() {
         super.onDestroy()
     }
 
-    /**
-     * Creates the local blackout overlay.
-     *
-     * We strongly prefer TYPE_APPLICATION_OVERLAY because it is the cleanest
-     * option for "Android black, PC visible" privacy mode. If the app overlay
-     * is unavailable on a device, fall back to an accessibility overlay so the
-     * user still gets a local blackout instead of no privacy at all.
-     */
     private fun createDarkOverlay(accessibilityService: Context) {
         val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             Settings.canDrawOverlays(this)
         val useAppOverlay = canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        val blackoutCreated = if (useAppOverlay) {
-            tryAddOverlayLayers(
+        val prefersBlackoutOverlay = prefersBlackoutOverlayPlan()
+
+        if (prefersBlackoutOverlay && useAppOverlay) {
+            val blackoutCreated = tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                     "app_blackout_overlay",
                     secure = true,
-                    alphaOverride = OVERLAY_ALPHA_OPAQUE,
-                    opaque = true
+                    opaque = true,
+                    alphaOverride = OVERLAY_ALPHA_OPAQUE
                 ),
                 1
             )
-        } else {
-            tryAddOverlayLayers(
-                accessibilityService,
-                OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                    "accessibility_blackout_overlay",
-                    secure = true,
-                    alphaOverride = OVERLAY_ALPHA_OPAQUE,
-                    opaque = true
-                ),
-                1
-            )
-        }
+            if (!blackoutCreated) {
+                throw RuntimeException("Huawei/Honor blackout overlay failed")
+            }
 
-        if (!blackoutCreated) {
-            throw RuntimeException("All overlay strategies failed")
-        }
-
-        val textOverlayCreated = if (useAppOverlay) {
-            tryAddOverlayLayers(
+            val textCreated = tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -267,27 +247,43 @@ class PrivacyModeService : Service() {
                 ),
                 1
             )
-        } else {
-            false
+
+            Log.i(
+                TAG,
+                "Blackout-overlay privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, text_layer=$textCreated"
+            )
+            return
         }
 
-        if (!textOverlayCreated) {
+        val anchorCreated = if (useAppOverlay) {
+            tryAddOverlayLayers(
+                accessibilityService,
+                OverlaySpec(
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    "app_brightness_anchor",
+                    alphaOverride = 0
+                ),
+                1
+            )
+        } else {
             tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
                     WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                    "accessibility_text_overlay",
-                    secure = true,
-                    alphaOverride = 0,
-                    showText = true
+                    "accessibility_brightness_anchor",
+                    alphaOverride = 0
                 ),
                 1
             )
         }
 
+        if (!anchorCreated) {
+            throw RuntimeException("All overlay strategies failed")
+        }
+
         Log.i(
             TAG,
-            "Secure blackout overlay activated for ${Build.MANUFACTURER}/${Build.BRAND}, mode=${if (useAppOverlay) "app" else "accessibility"}, total_layers=${overlayHandles.size}"
+            "Brightness-anchor privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, prefers_blackout=$prefersBlackoutOverlay, mode=${if (useAppOverlay) "app" else "accessibility"}"
         )
     }
 
@@ -333,9 +329,6 @@ class PrivacyModeService : Service() {
 
     private fun addOverlayView(accessibilityService: Context, spec: OverlaySpec) {
         val windowManager = resolveWindowManager(accessibilityService, spec.windowType)
-        val display = windowManager.defaultDisplay
-        val screenSize = android.graphics.Point()
-        display.getRealSize(screenSize)
         val overlayContext =
             if (spec.windowType == WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) {
                 accessibilityService
@@ -343,6 +336,7 @@ class PrivacyModeService : Service() {
                 this
             }
 
+        val isFullScreenOverlay = spec.opaque || spec.showText
         val alpha = spec.alphaOverride ?: if (spec.showText) 0 else OVERLAY_ALPHA_OPAQUE
         val container = FrameLayout(overlayContext).apply {
             setBackgroundColor(Color.argb(alpha, 0, 0, 0))
@@ -379,8 +373,24 @@ class PrivacyModeService : Service() {
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             (if (spec.secure) WindowManager.LayoutParams.FLAG_SECURE else 0)
 
-        val overlayWidth = screenSize.x + OVERLAY_EXTRA_SIZE * 2
-        val overlayHeight = screenSize.y + OVERLAY_EXTRA_SIZE * 2
+        val overlayWidth: Int
+        val overlayHeight: Int
+        val overlayX: Int
+        val overlayY: Int
+        if (isFullScreenOverlay) {
+            val display = windowManager.defaultDisplay
+            val screenSize = android.graphics.Point()
+            display.getRealSize(screenSize)
+            overlayWidth = screenSize.x + OVERLAY_EXTRA_SIZE * 2
+            overlayHeight = screenSize.y + OVERLAY_EXTRA_SIZE * 2
+            overlayX = -OVERLAY_EXTRA_SIZE
+            overlayY = -OVERLAY_EXTRA_SIZE
+        } else {
+            overlayWidth = BRIGHTNESS_ANCHOR_SIZE
+            overlayHeight = BRIGHTNESS_ANCHOR_SIZE
+            overlayX = 0
+            overlayY = 0
+        }
 
         val params = WindowManager.LayoutParams(
             overlayWidth,
@@ -390,8 +400,8 @@ class PrivacyModeService : Service() {
             if (spec.opaque && !spec.showText) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = -OVERLAY_EXTRA_SIZE
-            y = -OVERLAY_EXTRA_SIZE
+            x = overlayX
+            y = overlayY
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
