@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -35,12 +36,20 @@ import androidx.core.app.NotificationCompat
 class PrivacyModeService : Service() {
 
     companion object {
+        private enum class Strategy {
+            BRIGHTNESS_ANCHOR,
+            BLACKOUT_OVERLAY
+        }
+
         private const val TAG = "PrivacyModeService"
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
         private const val OVERLAY_ALPHA_OPAQUE = 255
         private const val BRIGHTNESS_ANCHOR_SIZE = 1
+        private const val CAPTURE_BLACK_LUMA_THRESHOLD = 20.0
+        private const val CAPTURE_BLACK_FRAMES_TO_FALLBACK = 4
+        private const val CAPTURE_SAMPLE_INTERVAL_MS = 250L
 
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
@@ -49,6 +58,14 @@ class PrivacyModeService : Service() {
 
         @Volatile
         private var isActive = false
+        @Volatile
+        private var activeStrategy = Strategy.BRIGHTNESS_ANCHOR
+        @Volatile
+        private var currentService: PrivacyModeService? = null
+        @Volatile
+        private var darkCaptureFrames = 0
+        @Volatile
+        private var lastCaptureSampleAt = 0L
 
         @Synchronized
         fun startPrivacyMode(context: Context) {
@@ -97,6 +114,38 @@ class PrivacyModeService : Service() {
         fun prefersBlackoutOverlayPlan(): Boolean {
             return isHuaweiOrHonor()
         }
+
+        private fun setActiveStrategy(strategy: Strategy) {
+            activeStrategy = strategy
+            darkCaptureFrames = 0
+            lastCaptureSampleAt = 0L
+        }
+
+        fun shouldMonitorCaptureFrames(): Boolean {
+            return isActive && activeStrategy == Strategy.BLACKOUT_OVERLAY
+        }
+
+        fun reportCapturedLuma(avgLuma: Double) {
+            val service = currentService ?: return
+            if (!shouldMonitorCaptureFrames()) return
+
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastCaptureSampleAt < CAPTURE_SAMPLE_INTERVAL_MS) return
+            lastCaptureSampleAt = now
+
+            darkCaptureFrames = if (avgLuma <= CAPTURE_BLACK_LUMA_THRESHOLD) {
+                darkCaptureFrames + 1
+            } else {
+                0
+            }
+
+            if (darkCaptureFrames >= CAPTURE_BLACK_FRAMES_TO_FALLBACK) {
+                darkCaptureFrames = 0
+                service.mainHandler.post {
+                    service.fallbackToBrightnessAnchor("capture_luma=$avgLuma")
+                }
+            }
+        }
     }
 
     private data class OverlayHandle(
@@ -131,6 +180,7 @@ class PrivacyModeService : Service() {
     override fun onCreate() {
         super.onCreate()
         isActive = true
+        currentService = this
 
         // Must call startForeground() ASAP to avoid ANR on Android 10+ (5s deadline).
         createForegroundNotification()
@@ -199,6 +249,9 @@ class PrivacyModeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        if (currentService === this) {
+            currentService = null
+        }
         for (handle in overlayHandles) {
             try {
                 handle.manager.removeView(handle.view)
@@ -210,6 +263,7 @@ class PrivacyModeService : Service() {
         mainHandler.removeCallbacks(brightnessKeepAlive)
         restoreSystemBrightness()
         isActive = false
+        setActiveStrategy(Strategy.BRIGHTNESS_ANCHOR)
 
         super.onDestroy()
     }
@@ -220,41 +274,54 @@ class PrivacyModeService : Service() {
         val useAppOverlay = canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
         val prefersBlackoutOverlay = prefersBlackoutOverlayPlan()
 
-        if (prefersBlackoutOverlay && useAppOverlay) {
-            val blackoutCreated = tryAddOverlayLayers(
-                accessibilityService,
-                OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    "app_blackout_overlay",
-                    secure = true,
-                    opaque = true,
-                    alphaOverride = OVERLAY_ALPHA_OPAQUE
-                ),
-                1
-            )
-            if (!blackoutCreated) {
-                throw RuntimeException("Huawei/Honor blackout overlay failed")
-            }
-
-            val textCreated = tryAddOverlayLayers(
-                accessibilityService,
-                OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    "app_text_overlay",
-                    secure = true,
-                    alphaOverride = 0,
-                    showText = true
-                ),
-                1
-            )
-
-            Log.i(
-                TAG,
-                "Blackout-overlay privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, text_layer=$textCreated"
-            )
+        if (prefersBlackoutOverlay && useAppOverlay && activateBlackoutOverlay(accessibilityService)) {
             return
         }
 
+        if (!activateBrightnessAnchor(accessibilityService, useAppOverlay)) {
+            throw RuntimeException("All overlay strategies failed")
+        }
+    }
+
+    private fun activateBlackoutOverlay(accessibilityService: Context): Boolean {
+        clearOverlayHandles()
+        val blackoutCreated = tryAddOverlayLayers(
+            accessibilityService,
+            OverlaySpec(
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                "app_blackout_overlay",
+                secure = true,
+                opaque = true,
+                alphaOverride = OVERLAY_ALPHA_OPAQUE
+            ),
+            1
+        )
+        if (!blackoutCreated) {
+            return false
+        }
+
+        val textCreated = tryAddOverlayLayers(
+            accessibilityService,
+            OverlaySpec(
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                "app_text_overlay",
+                secure = true,
+                alphaOverride = 0,
+                showText = true
+            ),
+            1
+        )
+
+        setActiveStrategy(Strategy.BLACKOUT_OVERLAY)
+        Log.i(
+            TAG,
+            "Blackout-overlay privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, text_layer=$textCreated"
+        )
+        return true
+    }
+
+    private fun activateBrightnessAnchor(accessibilityService: Context, useAppOverlay: Boolean): Boolean {
+        clearOverlayHandles()
         val anchorCreated = if (useAppOverlay) {
             tryAddOverlayLayers(
                 accessibilityService,
@@ -277,14 +344,25 @@ class PrivacyModeService : Service() {
             )
         }
 
-        if (!anchorCreated) {
-            throw RuntimeException("All overlay strategies failed")
+        if (anchorCreated) {
+            setActiveStrategy(Strategy.BRIGHTNESS_ANCHOR)
+            Log.i(
+                TAG,
+                "Brightness-anchor privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, mode=${if (useAppOverlay) "app" else "accessibility"}"
+            )
         }
+        return anchorCreated
+    }
 
-        Log.i(
-            TAG,
-            "Brightness-anchor privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, prefers_blackout=$prefersBlackoutOverlay, mode=${if (useAppOverlay) "app" else "accessibility"}"
-        )
+    private fun fallbackToBrightnessAnchor(reason: String) {
+        if (activeStrategy != Strategy.BLACKOUT_OVERLAY) return
+        val accessibilityService = InputService.ctx ?: return
+        val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+            Settings.canDrawOverlays(this)
+        val useAppOverlay = canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        if (activateBrightnessAnchor(accessibilityService, useAppOverlay)) {
+            Log.w(TAG, "Switched privacy mode to brightness anchor due to black capture ($reason)")
+        }
     }
 
     private fun tryAddOverlayLayers(
@@ -314,6 +392,10 @@ class PrivacyModeService : Service() {
             } catch (_: Exception) {
             }
         }
+    }
+
+    private fun clearOverlayHandles() {
+        removeOverlayHandlesFrom(0)
     }
 
     private fun resolveWindowManager(
