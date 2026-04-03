@@ -397,7 +397,6 @@ class MainService : Service() {
                             // If not call acquireLatestImage, listener will not be called again
                             imageReader.acquireLatestImage().use { image ->
                                 if (image == null || !isStart) return@setOnImageAvailableListener
-                                maybeReportPrivacyModeCapture(image)
                                 val planes = image.planes
                                 val buffer = planes[0].buffer
                                 buffer.rewind()
@@ -409,46 +408,6 @@ class MainService : Service() {
                 }
             Log.d(logTag, "ImageReader.setOnImageAvailableListener done")
             imageReader?.surface
-        }
-    }
-
-    private fun maybeReportPrivacyModeCapture(image: Image) {
-        if (!PrivacyModeService.shouldMonitorCaptureFrames()) return
-        try {
-            val plane = image.planes.firstOrNull() ?: return
-            val buffer = plane.buffer
-            val rowStride = plane.rowStride
-            val pixelStride = plane.pixelStride
-            val width = image.width
-            val height = image.height
-
-            if (width <= 0 || height <= 0 || pixelStride <= 0) return
-
-            val sampleCols = 4
-            val sampleRows = 4
-            var lumaTotal = 0.0
-            var count = 0
-
-            for (row in 0 until sampleRows) {
-                val y = if (sampleRows == 1) 0 else ((height - 1) * row) / (sampleRows - 1)
-                for (col in 0 until sampleCols) {
-                    val x = if (sampleCols == 1) 0 else ((width - 1) * col) / (sampleCols - 1)
-                    val index = y * rowStride + x * pixelStride
-                    if (index + 2 >= buffer.limit()) continue
-
-                    val r = buffer.get(index).toInt() and 0xFF
-                    val g = buffer.get(index + 1).toInt() and 0xFF
-                    val b = buffer.get(index + 2).toInt() and 0xFF
-                    lumaTotal += (r * 299 + g * 587 + b * 114) / 1000.0
-                    count += 1
-                }
-            }
-
-            if (count > 0) {
-                PrivacyModeService.reportCapturedLuma(lumaTotal / count)
-            }
-        } catch (e: Exception) {
-            Log.w(logTag, "maybeReportPrivacyModeCapture failed", e)
         }
     }
 
