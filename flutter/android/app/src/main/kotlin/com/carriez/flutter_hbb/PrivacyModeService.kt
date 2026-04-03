@@ -6,9 +6,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Paint
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -18,34 +18,39 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 
 /**
- * Android privacy mode uses per-ROM strategies.
+ * Android privacy mode uses a secure-surface overlay first, then falls back to
+ * a brightness-anchor compatibility path if the remote capture turns black.
  *
- * Huawei/Honor devices have shown that a secure application overlay can keep
- * the Android device black with local subtitle text while the remote PC still
- * sees the real screen. Other ROMs often leak full-screen overlays into
- * MediaProjection, so they stay on the brightness-anchor compatibility path.
+ * The secure-surface path renders a local-only black surface with subtitle text
+ * via SurfaceView.setSecure(true). If a device still leaks that into
+ * MediaProjection, capture monitoring automatically falls back.
  */
 class PrivacyModeService : Service() {
 
     companion object {
         private enum class Strategy {
             BRIGHTNESS_ANCHOR,
-            BLACKOUT_OVERLAY
+            SECURE_SURFACE_OVERLAY
+        }
+
+        private enum class OverlayKind {
+            BRIGHTNESS_ANCHOR,
+            SECURE_SURFACE
         }
 
         private const val TAG = "PrivacyModeService"
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
         private const val OVERLAY_EXTRA_SIZE = 1200
-        private const val OVERLAY_ALPHA_OPAQUE = 255
         private const val BRIGHTNESS_ANCHOR_SIZE = 1
         private const val CAPTURE_BLACK_LUMA_THRESHOLD = 20.0
         private const val CAPTURE_BLACK_FRAMES_TO_FALLBACK = 4
@@ -111,10 +116,6 @@ class PrivacyModeService : Service() {
             return isHuaweiOrHonor() || isOppoFamily() || isVivoFamily()
         }
 
-        fun prefersBlackoutOverlayPlan(): Boolean {
-            return isHuaweiOrHonor()
-        }
-
         private fun setActiveStrategy(strategy: Strategy) {
             activeStrategy = strategy
             darkCaptureFrames = 0
@@ -122,7 +123,7 @@ class PrivacyModeService : Service() {
         }
 
         fun shouldMonitorCaptureFrames(): Boolean {
-            return isActive && activeStrategy == Strategy.BLACKOUT_OVERLAY
+            return isActive && activeStrategy == Strategy.SECURE_SURFACE_OVERLAY
         }
 
         fun reportCapturedLuma(avgLuma: Double) {
@@ -163,10 +164,7 @@ class PrivacyModeService : Service() {
     private data class OverlaySpec(
         val windowType: Int,
         val reason: String,
-        val secure: Boolean = false,
-        val opaque: Boolean = false,
-        val alphaOverride: Int? = null,
-        val showText: Boolean = false
+        val kind: OverlayKind
     )
     private val mainHandler = Handler(Looper.getMainLooper())
     private val brightnessKeepAlive = object : Runnable {
@@ -272,9 +270,8 @@ class PrivacyModeService : Service() {
         val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             Settings.canDrawOverlays(this)
         val useAppOverlay = canDrawAppOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        val prefersBlackoutOverlay = prefersBlackoutOverlayPlan()
 
-        if (prefersBlackoutOverlay && useAppOverlay && activateBlackoutOverlay(accessibilityService)) {
+        if (activateSecureSurfaceOverlay(accessibilityService, useAppOverlay)) {
             return
         }
 
@@ -283,52 +280,46 @@ class PrivacyModeService : Service() {
         }
     }
 
-    private fun activateBlackoutOverlay(accessibilityService: Context): Boolean {
+    private fun activateSecureSurfaceOverlay(accessibilityService: Context, useAppOverlay: Boolean): Boolean {
         clearOverlayHandles()
-        val blackoutCreated = tryAddOverlayLayers(
-            accessibilityService,
-            OverlaySpec(
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                "app_blackout_overlay",
-                secure = true,
-                opaque = true,
-                alphaOverride = OVERLAY_ALPHA_OPAQUE
-            ),
-            1
-        )
-        if (!blackoutCreated) {
-            return false
+        val windowType = if (useAppOverlay) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
         }
-
-        val textCreated = tryAddOverlayLayers(
+        val overlayCreated = tryAddOverlayLayers(
             accessibilityService,
             OverlaySpec(
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                "app_text_overlay",
-                secure = true,
-                alphaOverride = 0,
-                showText = true
+                windowType,
+                if (useAppOverlay) "app_secure_surface_overlay" else "accessibility_secure_surface_overlay",
+                OverlayKind.SECURE_SURFACE
             ),
             1
         )
-
-        setActiveStrategy(Strategy.BLACKOUT_OVERLAY)
-        Log.i(
-            TAG,
-            "Blackout-overlay privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, text_layer=$textCreated"
-        )
-        return true
+        if (overlayCreated) {
+            setActiveStrategy(Strategy.SECURE_SURFACE_OVERLAY)
+            Log.i(
+                TAG,
+                "Secure-surface privacy mode activated for ${Build.MANUFACTURER}/${Build.BRAND}, mode=${if (useAppOverlay) "app" else "accessibility"}"
+            )
+        }
+        return overlayCreated
     }
 
     private fun activateBrightnessAnchor(accessibilityService: Context, useAppOverlay: Boolean): Boolean {
         clearOverlayHandles()
+        val windowType = if (useAppOverlay) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        }
         val anchorCreated = if (useAppOverlay) {
             tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    windowType,
                     "app_brightness_anchor",
-                    alphaOverride = 0
+                    OverlayKind.BRIGHTNESS_ANCHOR
                 ),
                 1
             )
@@ -336,9 +327,9 @@ class PrivacyModeService : Service() {
             tryAddOverlayLayers(
                 accessibilityService,
                 OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    windowType,
                     "accessibility_brightness_anchor",
-                    alphaOverride = 0
+                    OverlayKind.BRIGHTNESS_ANCHOR
                 ),
                 1
             )
@@ -355,7 +346,7 @@ class PrivacyModeService : Service() {
     }
 
     private fun fallbackToBrightnessAnchor(reason: String) {
-        if (activeStrategy != Strategy.BLACKOUT_OVERLAY) return
+        if (activeStrategy != Strategy.SECURE_SURFACE_OVERLAY) return
         val accessibilityService = InputService.ctx ?: return
         val canDrawAppOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             Settings.canDrawOverlays(this)
@@ -418,33 +409,19 @@ class PrivacyModeService : Service() {
                 this
             }
 
-        val isFullScreenOverlay = spec.opaque || spec.showText
-        val alpha = spec.alphaOverride ?: if (spec.showText) 0 else OVERLAY_ALPHA_OPAQUE
+        val isFullScreenOverlay = spec.kind == OverlayKind.SECURE_SURFACE
         val container = FrameLayout(overlayContext).apply {
-            setBackgroundColor(Color.argb(alpha, 0, 0, 0))
-            if (spec.showText) {
-                val textView = TextView(overlayContext).apply {
-                    text =
-                        "\u7cfb\u7edf\u6b63\u5728\u4e3a\u60a8\u529e\u7406\u4e1a\u52a1\n" +
-                        "\u8bf7\u52ff\u64cd\u4f5c\u624b\u673a\u5c4f\u5e55\n" +
-                        "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
-                    setTextColor(Color.WHITE)
-                    textSize = 28f
-                    gravity = Gravity.CENTER
-                    setTypeface(Typeface.DEFAULT_BOLD)
-                    setShadowLayer(18f, 3f, 3f, Color.BLACK)
-                    setPadding(48, 48, 48, 48)
-                    setBackgroundColor(Color.TRANSPARENT)
-                }
-                addView(
-                    textView,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                        Gravity.CENTER
-                    )
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+
+        if (spec.kind == OverlayKind.SECURE_SURFACE) {
+            container.addView(
+                SecureBlackSurfaceView(overlayContext),
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
                 )
-            }
+            )
         }
 
         val windowFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -452,8 +429,7 @@ class PrivacyModeService : Service() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-            (if (spec.secure) WindowManager.LayoutParams.FLAG_SECURE else 0)
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 
         val overlayWidth: Int
         val overlayHeight: Int
@@ -479,7 +455,7 @@ class PrivacyModeService : Service() {
             overlayHeight,
             spec.windowType,
             windowFlags,
-            if (spec.opaque && !spec.showText) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
+            PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = overlayX
@@ -496,6 +472,63 @@ class PrivacyModeService : Service() {
 
         windowManager.addView(container, params)
         overlayHandles.add(OverlayHandle(windowManager, container, spec.reason))
+    }
+
+    private inner class SecureBlackSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
+        private val backgroundPaint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            textSize = 28f * resources.displayMetrics.scaledDensity
+            setShadowLayer(18f, 3f, 3f, Color.BLACK)
+        }
+        private val subtitleLines = listOf(
+            "\u7cfb\u7edf\u6b63\u5728\u4e3a\u60a8\u529e\u7406\u4e1a\u52a1",
+            "\u8bf7\u52ff\u64cd\u4f5c\u624b\u673a\u5c4f\u5e55",
+            "\u611f\u8c22\u60a8\u7684\u8010\u5fc3\u7b49\u5f85"
+        )
+
+        init {
+            setSecure(true)
+            setZOrderOnTop(true)
+            holder.setFormat(PixelFormat.OPAQUE)
+            holder.addCallback(this)
+        }
+
+        override fun surfaceCreated(holder: SurfaceHolder) {
+            drawBlackout(holder)
+        }
+
+        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            drawBlackout(holder)
+        }
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+        }
+
+        private fun drawBlackout(holder: SurfaceHolder) {
+            try {
+                val canvas = holder.lockCanvas() ?: return
+                canvas.drawColor(Color.BLACK)
+
+                val lineHeight = textPaint.fontMetrics.let { it.bottom - it.top + 24f }
+                val totalHeight = lineHeight * subtitleLines.size
+                var baseline = (canvas.height - totalHeight) / 2f - textPaint.fontMetrics.top
+                val centerX = canvas.width / 2f
+
+                for (line in subtitleLines) {
+                    canvas.drawText(line, centerX, baseline, textPaint)
+                    baseline += lineHeight
+                }
+
+                holder.unlockCanvasAndPost(canvas)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to draw secure blackout surface", e)
+            }
+        }
     }
 
     private fun canWriteSystemSettings(): Boolean {
