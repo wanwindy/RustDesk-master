@@ -50,7 +50,6 @@ class PrivacyModeService : Service() {
 
         private enum class OverlayKind {
             BLACKOUT,
-            SUBTITLE,
             BRIGHTNESS_ANCHOR
         }
 
@@ -62,6 +61,7 @@ class PrivacyModeService : Service() {
         private const val OVERLAY_SCREEN_BRIGHTNESS = 0.0f
         private const val SYSTEM_BRIGHTNESS_TARGET = 0
         private const val BRIGHTNESS_KEEP_ALIVE_MS = 400L
+        private const val SUBTITLE_TOAST_INTERVAL_MS = 3500L
         private const val KEY_SCREEN_AUTO_BRIGHTNESS_ADJ = "screen_auto_brightness_adj"
 
         private val SUBTITLE_LINES = listOf(
@@ -133,7 +133,8 @@ class PrivacyModeService : Service() {
         val windowType: Int,
         val reason: String,
         val kind: OverlayKind,
-        val secure: Boolean
+        val secure: Boolean,
+        val showSubtitle: Boolean = false
     )
 
     private val overlayHandles = mutableListOf<OverlayHandle>()
@@ -142,12 +143,20 @@ class PrivacyModeService : Service() {
     private var originalBrightnessMode: Int? = null
     private var originalAutoBrightnessAdj: Float? = null
     private var systemBrightnessAdjusted = false
+    private var currentSubtitleToast: Toast? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val brightnessKeepAlive = object : Runnable {
         override fun run() {
             if (!isActive || !systemBrightnessAdjusted) return
             enforceSystemBrightnessTarget()
             mainHandler.postDelayed(this, BRIGHTNESS_KEEP_ALIVE_MS)
+        }
+    }
+    private val subtitleToastKeepAlive = object : Runnable {
+        override fun run() {
+            if (!isActive || activeStrategy != Strategy.BRIGHTNESS_COMPAT) return
+            showSubtitleToast()
+            mainHandler.postDelayed(this, SUBTITLE_TOAST_INTERVAL_MS)
         }
     }
 
@@ -189,6 +198,10 @@ class PrivacyModeService : Service() {
                 tryDimSystemBrightness()
             }
 
+            if (activeStrategy == Strategy.BRIGHTNESS_COMPAT) {
+                startSubtitleToastKeepAlive()
+            }
+
             Log.i(
                 TAG,
                 "Privacy mode activated: strategy=${activeStrategy.name}, device=${Build.MANUFACTURER}/${Build.BRAND}/${Build.MODEL}, sdk=${Build.VERSION.SDK_INT}, brightness_controlled=$hasBrightnessControl"
@@ -216,6 +229,9 @@ class PrivacyModeService : Service() {
         }
         overlayHandles.clear()
         mainHandler.removeCallbacks(brightnessKeepAlive)
+        mainHandler.removeCallbacks(subtitleToastKeepAlive)
+        currentSubtitleToast?.cancel()
+        currentSubtitleToast = null
         restoreSystemBrightness()
         isActive = false
         activeStrategy = Strategy.BRIGHTNESS_COMPAT
@@ -233,51 +249,26 @@ class PrivacyModeService : Service() {
     private fun activateHuaweiHonorRoute(accessibilityService: Context): Boolean {
         clearOverlayHandles()
 
-        val accessibilityType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        if (tryAddOverlay(accessibilityService, OverlaySpec(
-                accessibilityType,
-                "huawei_honor_blackout_accessibility",
-                OverlayKind.BLACKOUT,
-                secure = false
-            ))
-        ) {
-            tryAddOverlay(
-                accessibilityService,
-                OverlaySpec(
-                    accessibilityType,
-                    "huawei_honor_subtitle_accessibility",
-                    OverlayKind.SUBTITLE,
-                    secure = true
-                )
-            )
-            return true
-        }
-
         if (!canUseApplicationOverlay()) {
-            return false
+            Log.w(TAG, "Huawei/Honor overlay permission unavailable, falling back to brightness route")
+            return activateBrightnessCompatRoute(accessibilityService)
         }
 
         val appOverlayType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        if (!tryAddOverlay(accessibilityService, OverlaySpec(
+        val overlayCreated = tryAddOverlay(accessibilityService, OverlaySpec(
                 appOverlayType,
                 "huawei_honor_blackout_app",
                 OverlayKind.BLACKOUT,
-                secure = false
+                secure = false,
+                showSubtitle = true
             ))
-        ) {
+        if (!overlayCreated) {
             clearOverlayHandles()
-            return false
+            Log.w(TAG, "Huawei/Honor app overlay failed, falling back to brightness route")
+            return activateBrightnessCompatRoute(accessibilityService)
         }
 
-        tryAddOverlay(
-            accessibilityService,
-            OverlaySpec(
-                appOverlayType,
-                "huawei_honor_subtitle_app",
-                OverlayKind.SUBTITLE,
-                secure = true
-            )
-        )
+        activeStrategy = Strategy.HUAWEI_HONOR_OVERLAY
         return true
     }
 
@@ -308,25 +299,7 @@ class PrivacyModeService : Service() {
             }
         }
 
-        val subtitleWindowType = preferredWindowType
-        if (!tryAddOverlay(accessibilityService, OverlaySpec(
-                subtitleWindowType,
-                "brightness_subtitle",
-                OverlayKind.SUBTITLE,
-                secure = true
-            )) && subtitleWindowType != WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        ) {
-            tryAddOverlay(
-                accessibilityService,
-                OverlaySpec(
-                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                    "brightness_subtitle_accessibility",
-                    OverlayKind.SUBTITLE,
-                    secure = true
-                )
-            )
-        }
-
+        activeStrategy = Strategy.BRIGHTNESS_COMPAT
         return true
     }
 
@@ -392,7 +365,6 @@ class PrivacyModeService : Service() {
         val overlayHeight: Int
         val overlayX: Int
         val overlayY: Int
-        val overlayGravity: Int
         if (isFullScreenOverlay) {
             val display = windowManager.defaultDisplay
             val screenSize = Point()
@@ -401,19 +373,11 @@ class PrivacyModeService : Service() {
             overlayHeight = screenSize.y + OVERLAY_EXTRA_SIZE * 2
             overlayX = -OVERLAY_EXTRA_SIZE
             overlayY = -OVERLAY_EXTRA_SIZE
-            overlayGravity = Gravity.TOP or Gravity.START
-        } else if (spec.kind == OverlayKind.SUBTITLE) {
-            overlayWidth = WindowManager.LayoutParams.WRAP_CONTENT
-            overlayHeight = WindowManager.LayoutParams.WRAP_CONTENT
-            overlayX = 0
-            overlayY = 0
-            overlayGravity = Gravity.CENTER
         } else {
             overlayWidth = BRIGHTNESS_ANCHOR_SIZE
             overlayHeight = BRIGHTNESS_ANCHOR_SIZE
             overlayX = 0
             overlayY = 0
-            overlayGravity = Gravity.TOP or Gravity.START
         }
 
         val params = WindowManager.LayoutParams(
@@ -423,7 +387,7 @@ class PrivacyModeService : Service() {
             windowFlags,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = overlayGravity
+            gravity = Gravity.TOP or Gravity.START
             x = overlayX
             y = overlayY
 
@@ -432,10 +396,8 @@ class PrivacyModeService : Service() {
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
 
-            if (spec.kind != OverlayKind.SUBTITLE) {
-                screenBrightness = OVERLAY_SCREEN_BRIGHTNESS
-                buttonBrightness = OVERLAY_SCREEN_BRIGHTNESS
-            }
+            screenBrightness = OVERLAY_SCREEN_BRIGHTNESS
+            buttonBrightness = OVERLAY_SCREEN_BRIGHTNESS
         }
 
         windowManager.addView(view, params)
@@ -459,13 +421,26 @@ class PrivacyModeService : Service() {
 
     private fun createOverlayView(context: Context, spec: OverlaySpec): View {
         return when (spec.kind) {
-            OverlayKind.BLACKOUT -> FrameLayout(context).apply {
-                setBackgroundColor(Color.BLACK)
-            }
-            OverlayKind.SUBTITLE -> buildSubtitleCard(context)
+            OverlayKind.BLACKOUT -> buildBlackoutOverlay(context, spec.showSubtitle)
             OverlayKind.BRIGHTNESS_ANCHOR -> View(context).apply {
                 setBackgroundColor(Color.TRANSPARENT)
                 alpha = 0f
+            }
+        }
+    }
+
+    private fun buildBlackoutOverlay(context: Context, showSubtitle: Boolean): View {
+        return FrameLayout(context).apply {
+            setBackgroundColor(Color.BLACK)
+            if (showSubtitle) {
+                addView(
+                    buildSubtitleCard(context),
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER
+                    )
+                )
             }
         }
     }
@@ -503,6 +478,23 @@ class PrivacyModeService : Service() {
                 )
             }
         }
+    }
+
+    private fun startSubtitleToastKeepAlive() {
+        mainHandler.removeCallbacks(subtitleToastKeepAlive)
+        mainHandler.post(subtitleToastKeepAlive)
+    }
+
+    private fun showSubtitleToast() {
+        currentSubtitleToast?.cancel()
+        currentSubtitleToast = Toast.makeText(
+            this,
+            SUBTITLE_LINES.joinToString("\n"),
+            Toast.LENGTH_LONG
+        ).apply {
+            setGravity(Gravity.CENTER, 0, 0)
+        }
+        currentSubtitleToast?.show()
     }
 
     private fun dp(value: Int): Int {
