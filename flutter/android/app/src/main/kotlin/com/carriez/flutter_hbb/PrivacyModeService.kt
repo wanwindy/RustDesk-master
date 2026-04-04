@@ -31,14 +31,13 @@ import androidx.core.app.NotificationCompat
  * Privacy mode is intentionally split into vendor routes instead of trying to
  * force one rendering technique across every ROM.
  *
- * Huawei/Honor:
- * - Prefer an accessibility overlay blackout layer plus local subtitle layer.
- * - Still dim system brightness when WRITE_SETTINGS is available to hide any
- *   remaining status-bar leakage.
+ * Dedicated blackout overlay:
+ * - Enabled only on model allowlists that are known to keep the remote PC
+ *   visible while still blacking out Android locally.
  *
- * vivo/OPPO and the general compatibility route:
+ * General compatibility route:
  * - Prefer a 1x1 brightness anchor plus aggressive system brightness dimming.
- * - Add a lightweight subtitle layer separately so remote capture stays usable.
+ * - Keep local subtitle prompts outside of capture overlays whenever possible.
  */
 class PrivacyModeService : Service() {
 
@@ -104,6 +103,14 @@ class PrivacyModeService : Service() {
                 containsAny(brand, "huawei", "honor")
         }
 
+        fun isHonorX50Family(): Boolean {
+            val manufacturer = Build.MANUFACTURER.lowercase()
+            val brand = Build.BRAND.lowercase()
+            val model = Build.MODEL.lowercase()
+            return (manufacturer.contains("honor") || brand.contains("honor")) &&
+                containsAny(model, "x50", "ali-an00", "ali-nx1")
+        }
+
         fun isOppoFamily(): Boolean {
             val manufacturer = Build.MANUFACTURER.lowercase()
             val brand = Build.BRAND.lowercase()
@@ -154,7 +161,7 @@ class PrivacyModeService : Service() {
     }
     private val subtitleToastKeepAlive = object : Runnable {
         override fun run() {
-            if (!isActive || activeStrategy != Strategy.BRIGHTNESS_COMPAT) return
+            if (!isActive) return
             showSubtitleToast()
             mainHandler.postDelayed(this, SUBTITLE_TOAST_INTERVAL_MS)
         }
@@ -198,9 +205,7 @@ class PrivacyModeService : Service() {
                 tryDimSystemBrightness()
             }
 
-            if (activeStrategy == Strategy.BRIGHTNESS_COMPAT) {
-                startSubtitleToastKeepAlive()
-            }
+            startSubtitleToastKeepAlive()
 
             Log.i(
                 TAG,
@@ -239,7 +244,7 @@ class PrivacyModeService : Service() {
     }
 
     private fun selectStrategy(): Strategy {
-        return if (isHuaweiOrHonor()) {
+        return if (isHonorX50Family()) {
             Strategy.HUAWEI_HONOR_OVERLAY
         } else {
             Strategy.BRIGHTNESS_COMPAT
@@ -260,7 +265,7 @@ class PrivacyModeService : Service() {
                 "huawei_honor_blackout_app",
                 OverlayKind.BLACKOUT,
                 secure = false,
-                showSubtitle = true
+                showSubtitle = false
             ))
         if (!overlayCreated) {
             clearOverlayHandles()
@@ -487,8 +492,9 @@ class PrivacyModeService : Service() {
 
     private fun showSubtitleToast() {
         currentSubtitleToast?.cancel()
+        val toastContext = InputService.ctx ?: this
         currentSubtitleToast = Toast.makeText(
-            this,
+            toastContext,
             SUBTITLE_LINES.joinToString("\n"),
             Toast.LENGTH_LONG
         ).apply {
