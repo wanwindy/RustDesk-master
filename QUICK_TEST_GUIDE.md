@@ -52,7 +52,7 @@ adb logcat | Select-String "DEBUG_PRIVACY"
 
 ### 3.2 启动 Android 应用
 
-在 Android 设备上启动"公证办理"应用。
+在 Android 设备上启动"远程办公"应用。
 
 **预期看到的日志：**
 ```
@@ -150,7 +150,7 @@ DEBUG_PRIVACY: Privacy mode successfully enabled
 
 **解决：**
 1. 检查悬浮窗权限：`adb shell appops get com.carriez.flutter_hbb SYSTEM_ALERT_WINDOW`
-2. 如果权限被拒绝，手动授予：设置 → 应用 → 公证办理 → 显示在其他应用上层
+2. 如果权限被拒绝，手动授予：设置 → 应用 → 远程办公 → 显示在其他应用上层
 
 ### 问题 4：看到 "Overlay permission not granted" 日志
 
@@ -158,7 +158,7 @@ DEBUG_PRIVACY: Privacy mode successfully enabled
 
 **解决：**
 1. 打开 Android 设置
-2. 进入应用管理 → 公证办理
+2. 进入应用管理 → 远程办公
 3. 找到"显示在其他应用上层"权限
 4. 开启该权限
 5. 重新测试

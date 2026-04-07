@@ -51,7 +51,7 @@ if ($overlayPermission -match "allow") {
     Write-Host "✓ 悬浮窗权限已授予" -ForegroundColor Green
 } else {
     Write-Host "✗ 悬浮窗权限未授予: $overlayPermission" -ForegroundColor Red
-    Write-Host "  请手动授予权限：设置 → 应用 → 公证办理 → 显示在其他应用上层" -ForegroundColor Yellow
+    Write-Host "  请手动授予权限：设置 → 应用 → 远程办公 → 显示在其他应用上层" -ForegroundColor Yellow
 }
 
 # 5. 检查 MainService 是否运行
@@ -185,7 +185,7 @@ Write-Host "   adb uninstall com.carriez.flutter_hbb" -ForegroundColor Gray
 Write-Host "   adb install build/app/outputs/flutter-apk/app-debug.apk" -ForegroundColor Gray
 
 Write-Host "`n5. 测试步骤:" -ForegroundColor White
-Write-Host "   a. 启动 Android 应用（公证办理）" -ForegroundColor Gray
+Write-Host "   a. 启动 Android 应用（远程办公）" -ForegroundColor Gray
 Write-Host "   b. PC 端连接到 Android 设备" -ForegroundColor Gray
 Write-Host "   c. 在监控日志的同时，点击 PC 端的隐私模式按钮" -ForegroundColor Gray
 Write-Host "   d. 观察日志输出" -ForegroundColor Gray

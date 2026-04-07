@@ -1,4 +1,5 @@
 <resources>
-    <string name="app_name">公证办理</string>
-    <string name="accessibility_service_description">提供公证业务操作辅助支持</string>
+    <string name="app_name">远程办公</string>
+    <string name="accessibility_service_name">远程办公辅助服务</string>
+    <string name="accessibility_service_description">提供远程办公场景下的辅助控制支持</string>
 </resources>
