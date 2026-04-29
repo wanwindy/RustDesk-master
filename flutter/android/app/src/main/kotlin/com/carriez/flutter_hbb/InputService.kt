@@ -8,13 +8,20 @@ package com.carriez.flutter_hbb
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
+import android.view.WindowManager
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.view.accessibility.AccessibilityEvent
 import android.view.ViewGroup.LayoutParams
 import android.view.accessibility.AccessibilityNodeInfo
@@ -88,6 +95,10 @@ class InputService : AccessibilityService() {
 
     private var lastX = 0
     private var lastY = 0
+    private var privacyWindowManager: WindowManager? = null
+    private var privacyOverlayView: FrameLayout? = null
+    private var privacyPreviewView: ImageView? = null
+    private var privacyPreviewBitmap: Bitmap? = null
 
     private val volumeController: VolumeController by lazy { VolumeController(applicationContext.getSystemService(AUDIO_SERVICE) as AudioManager) }
 
@@ -732,11 +743,128 @@ class InputService : AccessibilityService() {
         Log.d(logTag, "onServiceConnected!")
     }
 
+    fun showPrivacyOverlay(
+        screenWidth: Int,
+        screenHeight: Int,
+        previewWidth: Int,
+        previewHeight: Int
+    ) {
+        if (privacyOverlayView != null) return
+
+        val manager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val overlayView = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+        }
+        val previewView = ImageView(this).apply {
+            setBackgroundColor(Color.WHITE)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+
+        overlayView.addView(
+            previewView,
+            FrameLayout.LayoutParams(previewWidth, previewHeight).apply {
+                gravity = Gravity.TOP or Gravity.END
+                topMargin = dp(PRIVACY_PREVIEW_MARGIN_DP)
+                marginEnd = dp(PRIVACY_PREVIEW_MARGIN_DP)
+            }
+        )
+
+        val overlayWidth = screenWidth + PRIVACY_OVERLAY_EXTRA_SIZE * 2
+        val overlayHeight = screenHeight + PRIVACY_OVERLAY_EXTRA_SIZE * 2
+        val params = WindowManager.LayoutParams(
+            overlayWidth,
+            overlayHeight,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            buildPrivacyOverlayFlags(),
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = -PRIVACY_OVERLAY_EXTRA_SIZE
+            y = -PRIVACY_OVERLAY_EXTRA_SIZE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            screenBrightness = 0f
+            buttonBrightness = 0f
+        }
+
+        manager.addView(overlayView, params)
+        privacyWindowManager = manager
+        privacyOverlayView = overlayView
+        privacyPreviewView = previewView
+    }
+
+    fun updatePrivacyPreview(previewBitmap: Bitmap) {
+        val previewView = privacyPreviewView
+        if (previewView == null) {
+            if (!previewBitmap.isRecycled) {
+                previewBitmap.recycle()
+            }
+            return
+        }
+
+        privacyPreviewBitmap?.let {
+            if (it !== previewBitmap && !it.isRecycled) {
+                it.recycle()
+            }
+        }
+        privacyPreviewBitmap = previewBitmap
+        previewView.setImageBitmap(previewBitmap)
+    }
+
+    fun hidePrivacyOverlay() {
+        val overlayView = privacyOverlayView
+        val manager = privacyWindowManager
+        if (overlayView != null && manager != null) {
+            try {
+                manager.removeView(overlayView)
+            } catch (e: Exception) {
+                Log.w(logTag, "Failed to remove privacy overlay", e)
+            }
+        }
+
+        privacyOverlayView = null
+        privacyPreviewView = null
+        privacyWindowManager = null
+        clearPrivacyPreview()
+    }
+
+    private fun clearPrivacyPreview() {
+        privacyPreviewBitmap?.let {
+            if (!it.isRecycled) {
+                it.recycle()
+            }
+        }
+        privacyPreviewBitmap = null
+    }
+
+    private fun buildPrivacyOverlayFlags(): Int {
+        return WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+            WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+    }
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
     override fun onDestroy() {
         PrivacyModeService.stopPrivacyMode(this)
+        hidePrivacyOverlay()
         ctx = null
         super.onDestroy()
     }
 
     override fun onInterrupt() {}
+
+    private companion object {
+        private const val PRIVACY_OVERLAY_EXTRA_SIZE = 1200
+        private const val PRIVACY_PREVIEW_MARGIN_DP = 16
+    }
 }

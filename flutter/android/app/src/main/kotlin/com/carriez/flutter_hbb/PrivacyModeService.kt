@@ -7,7 +7,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
 import android.hardware.display.VirtualDisplay
@@ -23,10 +22,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.util.Log
-import android.view.Gravity
 import android.view.WindowManager
-import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import kotlin.math.max
@@ -43,9 +39,7 @@ class PrivacyModeService : Service() {
         private const val TAG = "PrivacyModeService"
         private const val CHANNEL_ID = "privacy_mode_channel"
         private const val NOTIFICATION_ID = 2001
-        private const val OVERLAY_EXTRA_SIZE = 1200
         private const val PREVIEW_DIVISOR = 4
-        private const val PREVIEW_MARGIN_DP = 16
         private const val PREVIEW_UPDATE_INTERVAL_MS = 120L
 
         @Volatile
@@ -75,10 +69,7 @@ class PrivacyModeService : Service() {
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var windowManager: WindowManager? = null
-
-    private var combinedOverlayView: FrameLayout? = null
-    private var previewImageView: ImageView? = null
-    private var lastPreviewBitmap: Bitmap? = null
+    private var accessibilityService: InputService? = null
 
     private var imageReader: ImageReader? = null
     private var mediaProjection: MediaProjection? = null
@@ -98,8 +89,8 @@ class PrivacyModeService : Service() {
         isActive = true
         createForegroundNotification()
 
-        val accessibilityService = InputService.ctx
-        if (accessibilityService == null) {
+        val inputService = InputService.ctx
+        if (inputService == null) {
             failToStart("Please enable Accessibility service first")
             return
         }
@@ -111,15 +102,16 @@ class PrivacyModeService : Service() {
         }
 
         try {
+            accessibilityService = inputService
             windowManager =
-                accessibilityService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            loadScreenMetrics(accessibilityService)
+                inputService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            loadScreenMetrics(inputService)
             startCaptureThread()
 
             mediaProjection = projection
             registerMediaProjectionCallback()
             startMediaProjection()
-            createCombinedOverlay(accessibilityService)
+            inputService.showPrivacyOverlay(screenWidth, screenHeight, previewWidth, previewHeight)
 
             Log.i(
                 TAG,
@@ -334,20 +326,15 @@ class PrivacyModeService : Service() {
             }
 
             mainHandler.post {
-                if (!projectionRunning || previewImageView == null) {
+                val inputService = accessibilityService
+                if (!projectionRunning || inputService == null) {
                     if (!previewBitmap.isRecycled) {
                         previewBitmap.recycle()
                     }
                     return@post
                 }
 
-                lastPreviewBitmap?.let {
-                    if (it !== previewBitmap && !it.isRecycled) {
-                        it.recycle()
-                    }
-                }
-                lastPreviewBitmap = previewBitmap
-                previewImageView?.setImageBitmap(previewBitmap)
+                inputService.updatePrivacyPreview(previewBitmap)
             }
         } finally {
             if (baseBitmap != null && !baseBitmap.isRecycled) {
@@ -390,95 +377,11 @@ class PrivacyModeService : Service() {
         mediaProjection = null
     }
 
-    private fun createCombinedOverlay(accessibilityService: Context) {
-        if (combinedOverlayView != null) return
-        val manager = windowManager ?: throw IllegalStateException("WindowManager unavailable")
-
-        val overlayView = FrameLayout(accessibilityService).apply {
-            setBackgroundColor(Color.BLACK)
-        }
-        val previewView = ImageView(accessibilityService).apply {
-            setBackgroundColor(Color.WHITE)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-
-        overlayView.addView(
-            previewView,
-            FrameLayout.LayoutParams(previewWidth, previewHeight).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = dp(PREVIEW_MARGIN_DP)
-                marginEnd = dp(PREVIEW_MARGIN_DP)
-            }
-        )
-
-        val overlayWidth = screenWidth + OVERLAY_EXTRA_SIZE * 2
-        val overlayHeight = screenHeight + OVERLAY_EXTRA_SIZE * 2
-        val params = WindowManager.LayoutParams(
-            overlayWidth,
-            overlayHeight,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            buildOverlayFlags(),
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = -OVERLAY_EXTRA_SIZE
-            y = -OVERLAY_EXTRA_SIZE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
-            screenBrightness = 0f
-            buttonBrightness = 0f
-        }
-
-        manager.addView(overlayView, params)
-        combinedOverlayView = overlayView
-        previewImageView = previewView
-    }
-
-    private fun buildOverlayFlags(): Int {
-        return WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-            WindowManager.LayoutParams.FLAG_FULLSCREEN or
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
-            WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
-    }
-
-    private fun removeCombinedOverlay() {
-        val view = combinedOverlayView
-        val manager = windowManager
-        if (view != null && manager != null) {
-            try {
-                manager.removeView(view)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to remove blackout overlay", e)
-            }
-        }
-        combinedOverlayView = null
-        previewImageView = null
-        clearPreviewBitmap()
-    }
-
-    private fun clearPreviewBitmap() {
-        lastPreviewBitmap?.let {
-            if (!it.isRecycled) {
-                it.recycle()
-            }
-        }
-        lastPreviewBitmap = null
-    }
-
     private fun stopCapture() {
         stopMediaProjection()
-        removeCombinedOverlay()
+        accessibilityService?.hidePrivacyOverlay()
+        accessibilityService = null
         stopForeground(true)
-    }
-
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
     }
 
     private fun createForegroundNotification() {
