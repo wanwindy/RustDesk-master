@@ -729,11 +729,20 @@ class InputService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         ctx = this
-        val info = AccessibilityServiceInfo()
+        val info = serviceInfo ?: AccessibilityServiceInfo()
+        if (info.eventTypes == 0) {
+            info.eventTypes = AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        }
+        if (info.feedbackType == 0) {
+            info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+        }
+        if (info.notificationTimeout <= 0) {
+            info.notificationTimeout = 50
+        }
         if (Build.VERSION.SDK_INT >= 33) {
-            info.flags = FLAG_INPUT_METHOD_EDITOR or FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            info.flags = info.flags or FLAG_INPUT_METHOD_EDITOR or FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         } else {
-            info.flags = FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            info.flags = info.flags or FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
         setServiceInfo(info)
         fakeEditTextForTextStateCalculation = EditText(this)
@@ -757,19 +766,23 @@ class InputService : AccessibilityService() {
         val overlayView = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
         }
-        val previewView = ImageView(this).apply {
-            setBackgroundColor(Color.WHITE)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-
-        overlayView.addView(
-            previewView,
-            FrameLayout.LayoutParams(previewWidth, previewHeight).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = dp(PRIVACY_PREVIEW_MARGIN_DP)
-                marginEnd = dp(PRIVACY_PREVIEW_MARGIN_DP)
+        val previewView = if (previewWidth > 0 && previewHeight > 0) {
+            ImageView(this).apply {
+                setBackgroundColor(Color.WHITE)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }.also {
+                overlayView.addView(
+                    it,
+                    FrameLayout.LayoutParams(previewWidth, previewHeight).apply {
+                        gravity = Gravity.TOP or Gravity.END
+                        topMargin = dp(PRIVACY_PREVIEW_MARGIN_DP)
+                        marginEnd = dp(PRIVACY_PREVIEW_MARGIN_DP)
+                    }
+                )
             }
-        )
+        } else {
+            null
+        }
 
         val overlayWidth = screenWidth + PRIVACY_OVERLAY_EXTRA_SIZE * 2
         val overlayHeight = screenHeight + PRIVACY_OVERLAY_EXTRA_SIZE * 2

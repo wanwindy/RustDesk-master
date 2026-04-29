@@ -373,8 +373,14 @@ class MainService : Service() {
                 checkMediaPermission()
                 _isReady = true
             } ?: let {
-                Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
-                requestMediaProjection()
+                if (mediaProjection == null) {
+                    Log.w(logTag, "MediaProjection result intent missing, skip auto-request in background")
+                    handleMediaProjectionRevoked("MediaProjection authorization is missing")
+                } else {
+                    Log.d(logTag, "MediaProjection already initialized, keep current session")
+                    _isReady = true
+                    checkMediaPermission()
+                }
             }
         }
         return START_NOT_STICKY // don't use sticky (auto restart), the new service (from auto restart) will lose control
@@ -391,6 +397,27 @@ class MainService : Service() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         startActivity(intent)
+    }
+
+    private fun handleMediaProjectionRevoked(reason: String) {
+        Log.w(logTag, reason)
+        PrivacyModeService.stopPrivacyMode(this)
+        stopCapture()
+        if (reuseVirtualDisplay) {
+            try {
+                virtualDisplay?.release()
+            } catch (e: Exception) {
+                Log.w(logTag, "Failed to release revoked VirtualDisplay", e)
+            } finally {
+                virtualDisplay = null
+            }
+        }
+        mediaProjection = null
+        _isReady = false
+        checkMediaPermission()
+        Handler(Looper.getMainLooper()).post {
+            MainActivity.flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
+        }
     }
 
     @SuppressLint("WrongConstant")
@@ -580,9 +607,8 @@ class MainService : Service() {
                 )
             }
         } catch (e: SecurityException) {
-            Log.w(logTag, "createOrSetVirtualDisplay: got SecurityException, re-requesting confirmation");
-            // This initiates a prompt dialog for the user to confirm screen projection.
-            requestMediaProjection()
+            Log.w(logTag, "createOrSetVirtualDisplay: got SecurityException, marking MediaProjection invalid", e)
+            handleMediaProjectionRevoked("MediaProjection became invalid while creating VirtualDisplay")
         }
     }
 
