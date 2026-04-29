@@ -14,11 +14,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.ClipboardManager
-import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.IBinder
-import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
 import android.media.MediaCodecInfo
@@ -301,34 +299,20 @@ class MainActivity : FlutterActivity() {
                                 return@setMethodCallHandler
                             }
 
-                            // Brightness-first privacy mode needs WRITE_SETTINGS on
-                            // Huawei/Honor, OPPO family and vivo/iQOO devices.
-                            if (enable && PrivacyModeService.requiresWriteSettingsPermission()) {
-                                val canWrite = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
-                                    Settings.System.canWrite(this)
-                                if (!canWrite) {
-                                    runOnUiThread {
-                                        Toast.makeText(
-                                            this,
-                                            "\u8bf7\u5148\u6388\u6743\u201c\u4fee\u6539\u7cfb\u7edf\u8bbe\u7f6e\u201d\u6743\u9650",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                    try {
-                                        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                                            data = Uri.parse("package:$packageName")
-                                        }
-                                        startActivity(intent)
-                                    } catch (e: Exception) {
-                                        Log.e("MainActivity", "Failed to open WRITE_SETTINGS", e)
-                                    }
-                                    result.error(
-                                        "WRITE_SETTINGS_REQUIRED",
-                                        "Privacy mode on this device requires WRITE_SETTINGS permission",
-                                        null
-                                    )
-                                    return@setMethodCallHandler
+                            if (enable && MainService.currentMediaProjection() == null) {
+                                runOnUiThread {
+                                    Toast.makeText(
+                                        this,
+                                        "Please start screen capture service first",
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
+                                result.error(
+                                    "MEDIA_PROJECTION_REQUIRED",
+                                    "Privacy mode requires an active MediaProjection session",
+                                    null
+                                )
+                                return@setMethodCallHandler
                             }
 
                             try {

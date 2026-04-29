@@ -733,6 +733,7 @@ class InputService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        PrivacyModeService.stopPrivacyMode(this)
         ctx = null
         super.onDestroy()
     }
