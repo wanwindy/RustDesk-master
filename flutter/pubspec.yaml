@@ -155,7 +155,7 @@ flutter:
     - assets/
 
   fonts:
-    - family: GestureIcons
+    - family: gestureicons
       fonts:
         - asset: assets/gestures.ttf
     - family: Tabbar

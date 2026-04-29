@@ -70,6 +70,8 @@ const val LONG_TAP_DELAY = 200L
 class InputService : AccessibilityService() {
 
     companion object {
+        private const val PRIVACY_OVERLAY_EXTRA_SIZE = 1200
+        private const val PRIVACY_PREVIEW_MARGIN_DP = 16
         var ctx: InputService? = null
         val isOpen: Boolean
             get() = ctx != null
@@ -862,9 +864,4 @@ class InputService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
-
-    private companion object {
-        private const val PRIVACY_OVERLAY_EXTRA_SIZE = 1200
-        private const val PRIVACY_PREVIEW_MARGIN_DP = 16
-    }
 }
