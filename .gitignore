@@ -55,3 +55,9 @@ vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib
 flutter/web/
+# === Security: never commit keystores ===
+*.jks
+*.keystore
+key.properties
+# === IDE/agent ===
+.claude/

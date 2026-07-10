@@ -189,14 +189,6 @@ class MainService : Service() {
 
                 try {
                     if (enable) {
-                        if (!InputService.isOpen) {
-                            Log.w(logTag, "toggle_privacy_mode skipped: accessibility service is not enabled")
-                            return
-                        }
-                        if (currentMediaProjection() == null) {
-                            Log.w(logTag, "toggle_privacy_mode skipped: MediaProjection is not ready")
-                            return
-                        }
                         PrivacyModeService.startPrivacyMode(this)
                     } else {
                         PrivacyModeService.stopPrivacyMode(this)
@@ -217,8 +209,6 @@ class MainService : Service() {
     private val wakeLock: PowerManager.WakeLock by lazy { powerManager.newWakeLock(PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "rustdesk:wakelock")}
 
     companion object {
-        @Volatile
-        private var serviceInstance: MainService? = null
         private var _isReady = false // media permission ready status
         private var _isStart = false // screen capture start status
         private var _isAudioStart = false // audio capture start status
@@ -228,7 +218,6 @@ class MainService : Service() {
             get() = _isStart
         val isAudioStart: Boolean
             get() = _isAudioStart
-        fun currentMediaProjection(): MediaProjection? = serviceInstance?.mediaProjection
     }
 
     private val logTag = "LOG_SERVICE"
@@ -255,7 +244,6 @@ class MainService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        serviceInstance = this
         Log.d(logTag,"MainService onCreate, sdk int:${Build.VERSION.SDK_INT} reuseVirtualDisplay:$reuseVirtualDisplay")
         FFI.init(this)
         HandlerThread("Service", Process.THREAD_PRIORITY_BACKGROUND).apply {
@@ -279,9 +267,6 @@ class MainService : Service() {
         PrivacyModeService.stopPrivacyMode(this)
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
-        if (serviceInstance === this) {
-            serviceInstance = null
-        }
         super.onDestroy()
     }
 
@@ -373,14 +358,8 @@ class MainService : Service() {
                 checkMediaPermission()
                 _isReady = true
             } ?: let {
-                if (mediaProjection == null) {
-                    Log.w(logTag, "MediaProjection result intent missing, skip auto-request in background")
-                    handleMediaProjectionRevoked("MediaProjection authorization is missing")
-                } else {
-                    Log.d(logTag, "MediaProjection already initialized, keep current session")
-                    _isReady = true
-                    checkMediaPermission()
-                }
+                Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
+                requestMediaProjection()
             }
         }
         return START_NOT_STICKY // don't use sticky (auto restart), the new service (from auto restart) will lose control
@@ -415,6 +394,7 @@ class MainService : Service() {
         mediaProjection = null
         _isReady = false
         checkMediaPermission()
+        requestMediaProjection()
         Handler(Looper.getMainLooper()).post {
             MainActivity.flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
         }
